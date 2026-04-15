@@ -238,7 +238,11 @@ function renderSchedule(data, windows) {
   const nowTs = now.getTime();
   const entries = data.forecast.tide_data;
 
-  schedDate.textContent = data.forecast.date;
+  // Show coeff of first high tide (sets the range context for the day)
+  const highWithCoeff = data.forecast.tide_data.find(e => e.type === "high_tide" && e.coeff_label);
+  schedDate.innerHTML = highWithCoeff
+    ? `${data.forecast.date} <span class="coeff-badge">${highWithCoeff.coeff_label}</span>`
+    : data.forecast.date;
   schedRows.innerHTML = "";
 
   // Map each low-tide entry to its access window
