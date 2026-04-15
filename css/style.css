@@ -166,6 +166,21 @@ main {
   transform: translateX(-50%);
 }
 
+#timeline-window-times {
+  position: relative;
+  height: 14px;
+  width: 100%;
+}
+
+.tw-time {
+  position: absolute;
+  top: 0;
+  font-size: 9px;
+  color: var(--accessible);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
 #timeline-labels {
   display: flex;
   justify-content: space-between;
@@ -185,6 +200,12 @@ main {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
+}
+
+.coeff-badge {
+  color: var(--accessible);
+  opacity: 0.7;
+  letter-spacing: 0.05em;
 }
 
 .tide-row {

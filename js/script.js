@@ -88,14 +88,16 @@ function resolveStatus(windows, now) {
   return { accessible: false, changesAt: next ? next.opens : null };
 }
 
-// Build the entry list: last_tide + today + first entry of tomorrow
+// Build the entry list: last_tide + today + first 2 entries of tomorrow.
+// We need 2 tomorrow entries so that a low tide near midnight has a "next"
+// entry for window computation (cross-midnight case).
 function buildEntries(data) {
   const entries = [];
   if (data.last_tide) entries.push(data.last_tide);
   entries.push(...data.forecast.tide_data);
   const days = Object.values(data.data);
-  if (days.length > 1 && days[1].tide_data.length > 0) {
-    entries.push(days[1].tide_data[0]);
+  if (days.length > 1) {
+    entries.push(...days[1].tide_data.slice(0, 2));
   }
   return entries;
 }
@@ -123,6 +125,7 @@ tickClock();
 const statusLabel = document.getElementById("status-label");
 const statusSub   = document.getElementById("status-sub");
 const tlWindows   = document.getElementById("timeline-windows");
+const tlTimes     = document.getElementById("timeline-window-times");
 const tlNow       = document.getElementById("timeline-now");
 const schedDate   = document.getElementById("schedule-date");
 const schedRows   = document.getElementById("schedule-rows");
@@ -156,21 +159,37 @@ function renderTimeline(windows) {
   dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = dayStart.getTime() + 86400000;
 
+  // Clamp to [0, 100] for visual display (windows crossing midnight are capped)
   function pct(d) {
     const t = Math.max(dayStart.getTime(), Math.min(dayEnd, d.getTime()));
     return ((t - dayStart.getTime()) / 86400000) * 100;
   }
 
   tlWindows.innerHTML = "";
+  tlTimes.innerHTML = "";
+
   for (const w of windows) {
-    const left  = pct(w.opens);
-    const right = 100 - pct(w.closes);
-    if (left >= 100 || right >= 100) continue;
+    const leftPct  = pct(w.opens);
+    const rightPct = pct(w.closes); // capped at 100 for cross-midnight windows
+
+    // Skip windows entirely outside today
+    if (rightPct <= 0 || leftPct >= 100) continue;
+
+    // Blue segment
     const seg = document.createElement("div");
     seg.className = "tw-segment";
-    seg.style.left  = `${left}%`;
-    seg.style.right = `${right}%`;
+    seg.style.left  = `${leftPct}%`;
+    seg.style.right = `${100 - rightPct}%`;
     tlWindows.appendChild(seg);
+
+    // Time label: center on the visible portion, clamped to stay inside the bar
+    const centerPct = (leftPct + rightPct) / 2;
+    const label = document.createElement("span");
+    label.className = "tw-time";
+    label.style.left = `${Math.min(Math.max(centerPct, 7), 93)}%`;
+    // Show real times even if the window crosses midnight
+    label.textContent = `${fmtTime(w.opens)}→${fmtTime(w.closes)}`;
+    tlTimes.appendChild(label);
   }
 }
 
@@ -179,7 +198,11 @@ function renderSchedule(data, windows) {
   const nowTs = now.getTime();
   const entries = data.forecast.tide_data;
 
-  schedDate.textContent = data.forecast.date;
+  // Show coeff of first high tide (sets the range context for the day)
+  const highWithCoeff = data.forecast.tide_data.find(e => e.type === "high_tide" && e.coeff_label);
+  schedDate.innerHTML = highWithCoeff
+    ? `${data.forecast.date} <span class="coeff-badge">${highWithCoeff.coeff_label}</span>`
+    : data.forecast.date;
   schedRows.innerHTML = "";
 
   // Map each low-tide entry to its access window
