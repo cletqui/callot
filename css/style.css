@@ -186,6 +186,30 @@ main {
   opacity: 0.5;
 }
 
+/* PM / BM labels above the timeline bar */
+#timeline-tide-labels {
+  position: relative;
+  height: 14px;
+  margin-bottom: 3px;
+}
+
+.tw-tide-label {
+  position: absolute;
+  bottom: 0;
+  font-size: 8px;
+  line-height: 1;
+  transform: translateX(-50%);
+  color: var(--muted);
+  opacity: 0.7;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+
+.tw-tide-label.is-low {
+  color: var(--accessible);
+  opacity: 0.6;
+}
+
 /* Tide marks — thin lines at each high/low tide time */
 #timeline-tides {
   position: absolute;

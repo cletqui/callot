@@ -147,9 +147,9 @@ function getTideInfo(entries, now) {
   }
   const direction =
     lastBefore?.type === "low_tide"
-      ? "↑ montante"
+      ? "↑ marée montante"
       : lastBefore?.type === "high_tide"
-        ? "↓ descendante"
+        ? "↓ marée descendante"
         : "";
   // Coeff from the high tide bounding the current cycle
   const nearHigh =
@@ -193,6 +193,7 @@ function renderStatus(windows, entries) {
 }
 
 const tlTides = document.getElementById("timeline-tides");
+const tlTideLabels = document.getElementById("timeline-tide-labels");
 
 function renderTimeline(windows, entries) {
   const now = nowParis();
@@ -210,16 +211,27 @@ function renderTimeline(windows, entries) {
   tlTides.innerHTML = "";
   tlTicks.innerHTML = "";
   tlTickLabels.innerHTML = "";
+  tlTideLabels.innerHTML = "";
 
-  // Tide marks — thin line at each tide peak/trough, including last_tide
+  // Tide marks + PM/BM labels for each tide, including last_tide
   for (const e of entries) {
     const ts = parseTimestamp(e.timestamp);
     const x = pct(ts);
     if (x <= 0 || x >= 100) continue; // only within today's bar
+    const isHigh = e.type === "high_tide";
+
+    // Thin mark on the bar
     const mark = document.createElement("div");
-    mark.className = `tw-tide-mark ${e.type === "high_tide" ? "is-high" : "is-low"}`;
+    mark.className = `tw-tide-mark ${isHigh ? "is-high" : "is-low"}`;
     mark.style.left = `${x}%`;
     tlTides.appendChild(mark);
+
+    // PM / BM label above the bar
+    const label = document.createElement("span");
+    label.className = `tw-tide-label${isHigh ? "" : " is-low"}`;
+    label.style.left = `${Math.min(Math.max(x, 4), 96)}%`;
+    label.textContent = isHigh ? "PM" : "BM";
+    tlTideLabels.appendChild(label);
   }
 
   for (const w of windows) {
@@ -313,7 +325,7 @@ function renderSchedule(data, windows) {
         const m = document.createElement("div");
         m.className =
           "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accès`;
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accessible`;
         schedRows.appendChild(m);
       }
 
@@ -352,7 +364,7 @@ function renderSchedule(data, windows) {
         m.className =
           "access-marker is-closes" +
           (win.closes.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.closes)}</span> — ferme`;
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.closes)}</span> — inaccessible`;
         schedRows.appendChild(m);
       }
     }
@@ -371,7 +383,7 @@ function renderSchedule(data, windows) {
         const m = document.createElement("div");
         m.className =
           "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accès`;
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accessible`;
         schedRows.appendChild(m);
         preRendered.add(win);
       }
