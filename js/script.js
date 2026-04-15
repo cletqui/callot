@@ -222,9 +222,9 @@ function getTideInfo(entries, now) {
   }
   const direction =
     lastBefore?.type === "low_tide"
-      ? "↑ marée montante"
+      ? "▲ marée montante"
       : lastBefore?.type === "high_tide"
-        ? "↓ marée descendante"
+        ? "▼ marée descendante"
         : "";
   const nearHigh =
     lastBefore?.type === "high_tide"
@@ -262,9 +262,10 @@ function renderStatus(windows, entries) {
   const { direction, coeff, height } = getTideInfo(entries, now);
   const heightStr =
     height !== null ? `${height.toFixed(1).replace(".", ",")} m` : null;
-  statusTide.textContent = [direction, heightStr, coeff]
-    .filter(Boolean)
-    .join(" · ");
+  const mainStr = [direction, heightStr].filter(Boolean).join(" · ");
+  statusTide.innerHTML = coeff
+    ? `${mainStr}<span class="st-coeff">${coeff}</span>`
+    : mainStr;
 
   // Page title reflects current status (useful in pinned/background tabs)
   document.title = accessible
@@ -538,7 +539,10 @@ fetch(WEATHER_URL)
       `${cc.temp_C}°C`,
       `${parseInt(cc.windspeedKmph, 10)} km/h ${cc.winddir16Point}`,
     ];
-    statusWeather.textContent = parts.join(" · ");
+    // Inline SVG icons so they inherit currentColor and need no filter tricks
+    const tempIcon = `<svg class="wi" viewBox="0 0 6 12" aria-hidden="true"><rect x="2.2" y="0" width="1.6" height="7.5" rx="0.8" fill="currentColor"/><circle cx="3" cy="10" r="2" fill="currentColor"/></svg>`;
+    const windIcon = `<svg class="wi" viewBox="0 0 12 6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><line x1="0.6" y1="1.5" x2="11.4" y2="1.5"/><line x1="0.6" y1="4.5" x2="7.5" y2="4.5"/></svg>`;
+    statusWeather.innerHTML = `${tempIcon} ${cc.temp_C}°C · ${windIcon} ${parseInt(cc.windspeedKmph, 10)} km/h ${cc.winddir16Point}`;
     statusWeather.hidden = false;
   })
   .catch(() => {});
