@@ -158,7 +158,8 @@ function renderStatus(windows, entries) {
   const { accessible, changesAt } = resolveStatus(windows, now);
 
   statusLabel.textContent = accessible ? "accessible" : "inaccessible";
-  statusLabel.classList.toggle("accessible", accessible);
+  statusLabel.classList.toggle("accessible",   accessible);
+  statusLabel.classList.toggle("inaccessible", !accessible);
 
   if (changesAt) {
     const ms = changesAt.getTime() - now.getTime();
@@ -259,14 +260,24 @@ function renderSchedule(data, windows) {
     const isHigh = e.type === "high_tide";
     const isPast = parseTimestamp(e.timestamp).getTime() < nowTs;
 
+    // Before a low tide: insert a green "opens" separator
+    if (!isHigh && windowForEntry.has(i)) {
+      const win = windowForEntry.get(i);
+      const m = document.createElement("div");
+      m.className = "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
+      m.textContent = `${fmtTime(win.opens)} — accès`;
+      schedRows.appendChild(m);
+    }
+
+    // Tide row
     const row = document.createElement("div");
     row.className = "tide-row" + (isPast ? " past" : "");
 
-    const arrow  = document.createElement("span");
+    const arrow = document.createElement("span");
     arrow.className = "tide-arrow";
     arrow.textContent = isHigh ? "▲" : "▼";
 
-    const time   = document.createElement("span");
+    const time = document.createElement("span");
     time.className = "tide-time";
     time.textContent = e.time;
 
@@ -278,14 +289,6 @@ function renderSchedule(data, windows) {
     row.appendChild(time);
     row.appendChild(height);
 
-    if (!isHigh && windowForEntry.has(i)) {
-      const win = windowForEntry.get(i);
-      const acc = document.createElement("span");
-      acc.className = "tide-access";
-      acc.textContent = `accès ${fmtTime(win.opens)} → ${fmtTime(win.closes)}`;
-      row.appendChild(acc);
-    }
-
     if (isHigh && e.coeff_label) {
       const coeff = document.createElement("span");
       coeff.className = "tide-coeff";
@@ -294,6 +297,15 @@ function renderSchedule(data, windows) {
     }
 
     schedRows.appendChild(row);
+
+    // After a low tide: insert a red "closes" separator
+    if (!isHigh && windowForEntry.has(i)) {
+      const win = windowForEntry.get(i);
+      const m = document.createElement("div");
+      m.className = "access-marker is-closes" + (win.closes.getTime() < nowTs ? " past" : "");
+      m.textContent = `${fmtTime(win.closes)} — ferme`;
+      schedRows.appendChild(m);
+    }
   }
 }
 
