@@ -2,7 +2,6 @@
 
 const HARBOUR_ID = "71";
 const API_URL = `https://api.cybai.re/data/tide?id=${HARBOUR_ID}`;
-// const API_URL = `http://localhost:8787/data/tide?id=${HARBOUR_ID}`;
 
 // ── Theme ────────────────────────────────────────────────────────────────
 
@@ -41,10 +40,6 @@ function parseTimestamp(ts) {
   return new Date(`${year}-${month}-${day}T${timePart}Z`);
 }
 
-function midpoint(a, b) {
-  return new Date((a.getTime() + b.getTime()) / 2);
-}
-
 function fmtTime(d) {
   const h = String(d.getUTCHours()).padStart(2, "0");
   const m = String(d.getUTCMinutes()).padStart(2, "0");
@@ -63,19 +58,56 @@ function fmtCountdown(ms) {
 
 // ── Access window computation ────────────────────────────────────────────
 
-// The road to Callot is passable around low tide. It closes at approximately
-// mid-tide (the time midpoint between each high↔low turning point).
-// Access window = [midpoint(prev_high, low), midpoint(low, next_high)]
+// Height of the road — access is possible when tide is below this level.
+const ROAD_THRESHOLD = 4.5; // metres
+
+function parseHeight(h) {
+  return parseFloat(String(h).replace(",", ".").replace("m", ""));
+}
+
+// Between two consecutive tide extremes the height follows a cosine curve:
+//   H(t) = (h1+h2)/2 + (h1-h2)/2 · cos(π·(t−t1)/(t2−t1))
+// This holds whether the tide is falling (h1>h2) or rising (h1<h2).
+// Returns the ms timestamp when H(t) = threshold, or null if out of range.
+function crossingTime(t1Ms, h1, t2Ms, h2, threshold) {
+  const range = h1 - h2;
+  if (Math.abs(range) < 0.001) return null; // flat — no crossing
+  const cosVal = (2 * threshold - h1 - h2) / range;
+  if (cosVal < -1 || cosVal > 1) return null; // threshold outside [h2, h1]
+  return t1Ms + (Math.acos(cosVal) / Math.PI) * (t2Ms - t1Ms);
+}
+
+// For each low tide, compute the exact times when the road opens (falling
+// tide crosses ROAD_THRESHOLD downward) and closes (rising tide crosses
+// ROAD_THRESHOLD upward).
 function computeWindows(entries) {
   const windows = [];
   for (let i = 0; i < entries.length; i++) {
     if (entries[i].type !== "low_tide") continue;
-    const low = parseTimestamp(entries[i].timestamp);
-    const prev = i > 0 ? parseTimestamp(entries[i - 1].timestamp) : null;
-    const next =
-      i < entries.length - 1 ? parseTimestamp(entries[i + 1].timestamp) : null;
+    const prev = i > 0 ? entries[i - 1] : null;
+    const next = i < entries.length - 1 ? entries[i + 1] : null;
     if (!prev || !next) continue;
-    windows.push({ opens: midpoint(prev, low), closes: midpoint(low, next) });
+
+    const tLow = parseTimestamp(entries[i].timestamp).getTime();
+    const hLow = parseHeight(entries[i].high);
+    const tPrev = parseTimestamp(prev.timestamp).getTime();
+    const hPrev = parseHeight(prev.high);
+    const tNext = parseTimestamp(next.timestamp).getTime();
+    const hNext = parseHeight(next.high);
+
+    if (isNaN(hLow) || isNaN(hPrev) || isNaN(hNext)) continue;
+
+    // Low tide above threshold means road is permanently submerged this cycle
+    if (hLow >= ROAD_THRESHOLD) continue;
+
+    // Opens: falling tide (prev_high → low) crosses threshold downward
+    const opensMs = crossingTime(tPrev, hPrev, tLow, hLow, ROAD_THRESHOLD);
+    // Closes: rising tide (low → next_high) crosses threshold upward
+    const closesMs = crossingTime(tLow, hLow, tNext, hNext, ROAD_THRESHOLD);
+
+    if (opensMs === null || closesMs === null) continue;
+
+    windows.push({ opens: new Date(opensMs), closes: new Date(closesMs) });
   }
   return windows;
 }
@@ -147,9 +179,9 @@ function getTideInfo(entries, now) {
   }
   const direction =
     lastBefore?.type === "low_tide"
-      ? "↑ montante"
+      ? "↑ marée montante"
       : lastBefore?.type === "high_tide"
-        ? "↓ descendante"
+        ? "↓ marée descendante"
         : "";
   // Coeff from the high tide bounding the current cycle
   const nearHigh =
@@ -161,7 +193,9 @@ function getTideInfo(entries, now) {
   const coeffLabel = nearHigh?.coeff_label ?? null;
   const coeffNum = nearHigh?.coeff ?? null;
   const coeff = coeffLabel
-    ? coeffNum ? `${coeffLabel} (coeff. ${coeffNum})` : coeffLabel
+    ? coeffNum
+      ? `${coeffLabel} (coeff. ${coeffNum})`
+      : coeffLabel
     : null;
   return { direction, coeff };
 }
@@ -193,6 +227,7 @@ function renderStatus(windows, entries) {
 }
 
 const tlTides = document.getElementById("timeline-tides");
+const tlTideLabels = document.getElementById("timeline-tide-labels");
 
 function renderTimeline(windows, entries) {
   const now = nowParis();
@@ -210,16 +245,27 @@ function renderTimeline(windows, entries) {
   tlTides.innerHTML = "";
   tlTicks.innerHTML = "";
   tlTickLabels.innerHTML = "";
+  tlTideLabels.innerHTML = "";
 
-  // Tide marks — thin line at each tide peak/trough, including last_tide
+  // Tide marks + PM/BM labels for each tide, including last_tide
   for (const e of entries) {
     const ts = parseTimestamp(e.timestamp);
     const x = pct(ts);
     if (x <= 0 || x >= 100) continue; // only within today's bar
+    const isHigh = e.type === "high_tide";
+
+    // Thin mark on the bar
     const mark = document.createElement("div");
-    mark.className = `tw-tide-mark ${e.type === "high_tide" ? "is-high" : "is-low"}`;
+    mark.className = `tw-tide-mark ${isHigh ? "is-high" : "is-low"}`;
     mark.style.left = `${x}%`;
     tlTides.appendChild(mark);
+
+    // PM / BM label above the bar
+    const label = document.createElement("span");
+    label.className = `tw-tide-label${isHigh ? "" : " is-low"}`;
+    label.style.left = `${Math.min(Math.max(x, 4), 96)}%`;
+    label.textContent = isHigh ? "PM" : "BM";
+    tlTideLabels.appendChild(label);
   }
 
   for (const w of windows) {
@@ -266,7 +312,7 @@ function renderSchedule(data, windows) {
 
   // Date header with coeff badge
   const highWithCoeff = data.forecast.tide_data.find(
-    (e) => e.type === "high_tide" && e.coeff_label
+    (e) => e.type === "high_tide" && e.coeff_label,
   );
   schedDate.innerHTML = highWithCoeff
     ? `${data.forecast.date} <span class="coeff-badge">${highWithCoeff.coeff_label}${highWithCoeff.coeff ? ` · ${highWithCoeff.coeff}` : ""}</span>`
@@ -292,7 +338,7 @@ function renderSchedule(data, windows) {
     ? parseTimestamp(todayEntries[todayEntries.length - 1].timestamp).getTime()
     : 0;
   const hasUpcomingWindowToday = windows.some(
-    (w) => w.opens.getTime() > nowTs && w.opens.getTime() <= lastTodayTs
+    (w) => w.opens.getTime() > nowTs && w.opens.getTime() <= lastTodayTs,
   );
 
   // Midnight boundary between today and tomorrow (naive-UTC Paris time)
@@ -312,8 +358,9 @@ function renderSchedule(data, windows) {
       if (!isHigh && win && !renderedOpens.has(win)) {
         const m = document.createElement("div");
         m.className =
-          "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accès`;
+          "access-marker is-opens" +
+          (win.opens.getTime() < nowTs ? " past" : "");
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accessible`;
         schedRows.appendChild(m);
       }
 
@@ -340,7 +387,9 @@ function renderSchedule(data, windows) {
       if (isHigh && e.coeff_label) {
         const coeff = document.createElement("span");
         coeff.className = "tide-coeff";
-        coeff.textContent = e.coeff ? `${e.coeff_label} · coeff. ${e.coeff}` : e.coeff_label;
+        coeff.textContent = e.coeff
+          ? `${e.coeff_label} · coeff. ${e.coeff}`
+          : e.coeff_label;
         row.appendChild(coeff);
       }
 
@@ -352,7 +401,7 @@ function renderSchedule(data, windows) {
         m.className =
           "access-marker is-closes" +
           (win.closes.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.closes)}</span> — ferme`;
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.closes)}</span> — inaccessible`;
         schedRows.appendChild(m);
       }
     }
@@ -370,8 +419,9 @@ function renderSchedule(data, windows) {
       if (win && win.opens.getTime() < tomorrowStart) {
         const m = document.createElement("div");
         m.className =
-          "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accès`;
+          "access-marker is-opens" +
+          (win.opens.getTime() < nowTs ? " past" : "");
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accessible`;
         schedRows.appendChild(m);
         preRendered.add(win);
       }
