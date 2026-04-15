@@ -1,7 +1,10 @@
 // ── Constants ────────────────────────────────────────────────────────────
 
+// Change BASE_URL to "http://localhost:8787" for local development
+const BASE_URL = "https://api.cybai.re";
 const HARBOUR_ID = "71";
-const API_URL = `https://api.cybai.re/data/tide?id=${HARBOUR_ID}`;
+const API_URL = `${BASE_URL}/data/tide?id=${HARBOUR_ID}`;
+const WEATHER_URL = `${BASE_URL}/data/weather?location=Carantec`;
 
 // ── Theme ────────────────────────────────────────────────────────────────
 
@@ -9,7 +12,6 @@ const html = document.documentElement;
 const themeBtn = document.getElementById("theme-btn");
 const themeIcon = document.getElementById("theme-icon");
 
-// Apply stored or system preference on load
 const stored = localStorage.getItem("theme");
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 const initialTheme = stored ?? (prefersDark ? "dark" : "light");
@@ -112,7 +114,6 @@ function computeWindows(entries) {
   return windows;
 }
 
-// Returns current accessibility status and when it next changes
 function resolveStatus(windows, now) {
   for (const w of windows) {
     if (now >= w.opens && now < w.closes) {
@@ -123,9 +124,32 @@ function resolveStatus(windows, now) {
   return { accessible: false, changesAt: next ? next.opens : null };
 }
 
-// Build the entry list: last_tide + today + first 2 entries of tomorrow.
-// We need 2 tomorrow entries so that a low tide near midnight has a "next"
-// entry for window computation (cross-midnight case).
+// ── Height interpolation ─────────────────────────────────────────────────
+
+// Cosine-interpolate the tide height at any arbitrary timestamp.
+function heightAt(entries, tMs) {
+  let prev = null;
+  let next = null;
+  for (const e of entries) {
+    const ts = parseTimestamp(e.timestamp).getTime();
+    if (ts <= tMs) prev = e;
+    else if (!next) next = e;
+  }
+  if (!prev || !next) return null;
+  const t1 = parseTimestamp(prev.timestamp).getTime();
+  const h1 = parseHeight(prev.high);
+  const t2 = parseTimestamp(next.timestamp).getTime();
+  const h2 = parseHeight(next.high);
+  if (isNaN(h1) || isNaN(h2)) return null;
+  return (
+    (h1 + h2) / 2 +
+    ((h1 - h2) / 2) * Math.cos((Math.PI * (tMs - t1)) / (t2 - t1))
+  );
+}
+
+// ── Entry builders ───────────────────────────────────────────────────────
+
+// Today + first 2 entries of tomorrow (for cross-midnight window computation).
 function buildEntries(data) {
   const entries = [];
   if (data.last_tide) entries.push(data.last_tide);
@@ -135,6 +159,21 @@ function buildEntries(data) {
     entries.push(...days[1].tide_data.slice(0, 2));
   }
   return entries;
+}
+
+// Full multi-day list — all available days from the API response.
+// Used for computing multi-day windows and the sparkline.
+// Deduplicates by timestamp and sorts chronologically so that heightAt()
+// always finds the correct prev/next neighbours regardless of last_tide position.
+function buildAllEntries(data) {
+  const map = new Map();
+  if (data.last_tide?.timestamp) map.set(data.last_tide.timestamp, data.last_tide);
+  for (const day of Object.values(data.data)) {
+    for (const e of day.tide_data) map.set(e.timestamp, e);
+  }
+  return [...map.values()].sort(
+    (a, b) => parseTimestamp(a.timestamp).getTime() - parseTimestamp(b.timestamp).getTime()
+  );
 }
 
 // ── Clock ────────────────────────────────────────────────────────────────
@@ -147,7 +186,6 @@ function tickClock() {
   const hh = String(now.getUTCHours()).padStart(2, "0");
   const mm = String(now.getUTCMinutes()).padStart(2, "0");
   const ss = String(now.getUTCSeconds()).padStart(2, "0");
-  // Update only the text nodes to avoid disrupting the <span>
   clockEl.firstChild.textContent = `${hh}:${mm}`;
   clockSec.textContent = `:${ss}`;
 }
@@ -160,14 +198,19 @@ tickClock();
 const statusLabel = document.getElementById("status-label");
 const statusSub = document.getElementById("status-sub");
 const statusTide = document.getElementById("status-tide");
+const statusWeather = document.getElementById("status-weather");
 const tlWindows = document.getElementById("timeline-windows");
 const tlTicks = document.getElementById("timeline-ticks");
 const tlTickLabels = document.getElementById("timeline-tick-labels");
 const tlNow = document.getElementById("timeline-now");
+const tlTides = document.getElementById("timeline-tides");
+const tlTideLabels = document.getElementById("timeline-tide-labels");
+const tlSvg = document.getElementById("timeline-svg");
 const schedDate = document.getElementById("schedule-date");
 const schedRows = document.getElementById("schedule-rows");
+const upcomingRows = document.getElementById("upcoming-rows");
 
-// Returns tide direction (montante/descendante) and coeff label for current moment
+// Returns tide direction, coeff label, and interpolated current height.
 function getTideInfo(entries, now) {
   const nowTs = now.getTime();
   let lastBefore = null;
@@ -183,7 +226,6 @@ function getTideInfo(entries, now) {
       : lastBefore?.type === "high_tide"
         ? "↓ marée descendante"
         : "";
-  // Coeff from the high tide bounding the current cycle
   const nearHigh =
     lastBefore?.type === "high_tide"
       ? lastBefore
@@ -197,7 +239,8 @@ function getTideInfo(entries, now) {
       ? `${coeffLabel} (coeff. ${coeffNum})`
       : coeffLabel
     : null;
-  return { direction, coeff };
+  const height = heightAt(entries, nowTs);
+  return { direction, coeff, height };
 }
 
 function renderStatus(windows, entries) {
@@ -216,8 +259,19 @@ function renderStatus(windows, entries) {
     statusSub.textContent = "";
   }
 
-  const { direction, coeff } = getTideInfo(entries, now);
-  statusTide.textContent = [direction, coeff].filter(Boolean).join(" · ");
+  const { direction, coeff, height } = getTideInfo(entries, now);
+  const heightStr =
+    height !== null ? `${height.toFixed(1).replace(".", ",")} m` : null;
+  statusTide.textContent = [direction, heightStr, coeff]
+    .filter(Boolean)
+    .join(" · ");
+
+  // Page title reflects current status (useful in pinned/background tabs)
+  document.title = accessible
+    ? "✓ callot"
+    : changesAt
+      ? `callot · ouvre ${fmtTime(changesAt)}`
+      : "✗ callot";
 
   // Timeline cursor
   const dayStart = new Date(now);
@@ -226,19 +280,16 @@ function renderStatus(windows, entries) {
   tlNow.style.left = `${pct}%`;
 }
 
-const tlTides = document.getElementById("timeline-tides");
-const tlTideLabels = document.getElementById("timeline-tide-labels");
-
 function renderTimeline(windows, entries) {
   const now = nowParis();
   const dayStart = new Date(now);
   dayStart.setUTCHours(0, 0, 0, 0);
-  const dayEnd = dayStart.getTime() + 86400000;
+  const dayStartMs = dayStart.getTime();
+  const dayEnd = dayStartMs + 86400000;
 
-  // Clamp a date to [0 %, 100 %] of today's bar
   function pct(d) {
-    const t = Math.max(dayStart.getTime(), Math.min(dayEnd, d.getTime()));
-    return ((t - dayStart.getTime()) / 86400000) * 100;
+    const t = Math.max(dayStartMs, Math.min(dayEnd, d.getTime()));
+    return ((t - dayStartMs) / 86400000) * 100;
   }
 
   tlWindows.innerHTML = "";
@@ -247,20 +298,42 @@ function renderTimeline(windows, entries) {
   tlTickLabels.innerHTML = "";
   tlTideLabels.innerHTML = "";
 
-  // Tide marks + PM/BM labels for each tide, including last_tide
+  // ── Sparkline ────────────────────────────────────────────────────────
+  const SVG_W = 1000;
+  const SVG_H = 100;
+  const allHeights = entries
+    .map((e) => parseHeight(e.high))
+    .filter((h) => !isNaN(h));
+  const maxH = Math.max(6, ...allHeights);
+
+  const step = 10 * 60 * 1000; // sample every 10 min
+  const parts = [];
+  let penUp = true; // lift pen at null gaps so no straight lines are drawn across them
+  for (let t = dayStartMs; t <= dayEnd; t += step) {
+    const h = heightAt(entries, t);
+    if (h === null) { penUp = true; continue; }
+    const x = (((t - dayStartMs) / 86400000) * SVG_W).toFixed(1);
+    const y = (SVG_H - (h / maxH) * SVG_H).toFixed(1);
+    parts.push(`${penUp ? "M" : "L"} ${x} ${y}`);
+    penUp = false;
+  }
+  const threshY = (SVG_H - (ROAD_THRESHOLD / maxH) * SVG_H).toFixed(1);
+  tlSvg.innerHTML =
+    `<path d="${parts.join(" ")}" fill="none" stroke="currentColor" stroke-width="2" opacity="0.5"/>` +
+    `<line x1="0" y1="${threshY}" x2="${SVG_W}" y2="${threshY}" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.3"/>`;
+
+  // ── Tide marks + PM/BM labels ─────────────────────────────────────────
   for (const e of entries) {
     const ts = parseTimestamp(e.timestamp);
     const x = pct(ts);
-    if (x <= 0 || x >= 100) continue; // only within today's bar
+    if (x <= 0 || x >= 100) continue;
     const isHigh = e.type === "high_tide";
 
-    // Thin mark on the bar
     const mark = document.createElement("div");
     mark.className = `tw-tide-mark ${isHigh ? "is-high" : "is-low"}`;
     mark.style.left = `${x}%`;
     tlTides.appendChild(mark);
 
-    // PM / BM label above the bar
     const label = document.createElement("span");
     label.className = `tw-tide-label${isHigh ? "" : " is-low"}`;
     label.style.left = `${Math.min(Math.max(x, 4), 96)}%`;
@@ -268,62 +341,87 @@ function renderTimeline(windows, entries) {
     tlTideLabels.appendChild(label);
   }
 
+  // ── Access window segments + ticks ───────────────────────────────────
   for (const w of windows) {
     const leftPct = pct(w.opens);
-    const rightPct = pct(w.closes); // capped at 100 for cross-midnight windows
+    const rightPct = pct(w.closes);
 
     if (rightPct <= 0 || leftPct >= 100) continue;
 
-    // Blue accessible segment
     const seg = document.createElement("div");
     seg.className = "tw-segment";
     seg.style.left = `${leftPct}%`;
     seg.style.right = `${100 - rightPct}%`;
     tlWindows.appendChild(seg);
 
-    // Tick + label at opens (start of access window, between high→low)
     addTick(leftPct, w.opens, "is-opens");
-
-    // Tick + label at closes (end of access window, between low→high)
-    // Only draw if it falls within today's bar
     if (rightPct < 100) addTick(rightPct, w.closes, "is-closes");
   }
 
   function addTick(x, date, cls) {
-    // Vertical cut on the bar
     const tick = document.createElement("div");
     tick.className = "tw-tick";
     tick.style.left = `${x}%`;
     tlTicks.appendChild(tick);
 
-    // Time label below the bar
     const label = document.createElement("span");
     label.className = `tw-tick-label ${cls}`;
-    // Clamp label position so text doesn't overflow the edges
     label.style.left = `${Math.min(Math.max(x, 6), 94)}%`;
     label.textContent = fmtTime(date);
     tlTickLabels.appendChild(label);
   }
 }
 
+// ── Upcoming windows ─────────────────────────────────────────────────────
+
+function sameUTCDay(a, b) {
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  );
+}
+
+function renderUpcoming(allWindows, now) {
+  // Windows not yet fully closed, next 4
+  const relevant = allWindows.filter((w) => w.closes > now).slice(0, 4);
+
+  upcomingRows.innerHTML = "";
+  for (const w of relevant) {
+    const isActive = now >= w.opens;
+    const durationMs = w.closes.getTime() - w.opens.getTime();
+
+    const row = document.createElement("div");
+    row.className = "upcoming-row" + (isActive ? " is-active" : "");
+
+    // Show date prefix when window is not today
+    const dateHtml = !sameUTCDay(w.opens, now)
+      ? `<span class="upcoming-date">${String(w.opens.getUTCDate()).padStart(2, "0")}/${String(w.opens.getUTCMonth() + 1).padStart(2, "0")}</span>`
+      : "";
+
+    row.innerHTML =
+      dateHtml +
+      `<span class="upcoming-opens">${fmtTime(w.opens)}</span>` +
+      `<span class="upcoming-sep">→</span>` +
+      `<span class="upcoming-closes">${fmtTime(w.closes)}</span>` +
+      `<span class="upcoming-dur">${fmtCountdown(durationMs)}</span>`;
+    upcomingRows.appendChild(row);
+  }
+}
+
+// ── Schedule ─────────────────────────────────────────────────────────────
+
 function renderSchedule(data, windows) {
   const now = nowParis();
   const nowTs = now.getTime();
 
-  // Date header with coeff badge
-  const highWithCoeff = data.forecast.tide_data.find(
-    (e) => e.type === "high_tide" && e.coeff_label,
-  );
-  schedDate.innerHTML = highWithCoeff
-    ? `${data.forecast.date} <span class="coeff-badge">${highWithCoeff.coeff_label}${highWithCoeff.coeff ? ` · ${highWithCoeff.coeff}` : ""}</span>`
-    : data.forecast.date;
+  schedDate.textContent = data.forecast.date;
   schedRows.innerHTML = "";
 
   const todayEntries = data.forecast.tide_data;
   const days = Object.values(data.data);
   const tomorrowData = days.length > 1 ? days[1] : null;
 
-  // Use buildEntries so the windowForEntry map covers cross-midnight low tides
   const allEntries = buildEntries(data);
   const windowForEntry = new Map();
   for (const e of allEntries) {
@@ -333,7 +431,6 @@ function renderSchedule(data, windows) {
     if (win) windowForEntry.set(e, win);
   }
 
-  // Decide whether to show tomorrow: when no access window opens after now within today
   const lastTodayTs = todayEntries.length
     ? parseTimestamp(todayEntries[todayEntries.length - 1].timestamp).getTime()
     : 0;
@@ -341,20 +438,16 @@ function renderSchedule(data, windows) {
     (w) => w.opens.getTime() > nowTs && w.opens.getTime() <= lastTodayTs,
   );
 
-  // Midnight boundary between today and tomorrow (naive-UTC Paris time)
   const dayStart = new Date(now);
   dayStart.setUTCHours(0, 0, 0, 0);
   const tomorrowStart = dayStart.getTime() + 86400000;
 
-  // Render a list of entries; renderedOpens tracks windows whose "opens" marker
-  // was already placed before the day separator (cross-midnight case).
   function renderEntries(entries, renderedOpens = new Set()) {
     for (const e of entries) {
       const isHigh = e.type === "high_tide";
       const isPast = parseTimestamp(e.timestamp).getTime() < nowTs;
       const win = windowForEntry.get(e);
 
-      // Before a low tide: insert a green "opens" separator
       if (!isHigh && win && !renderedOpens.has(win)) {
         const m = document.createElement("div");
         m.className =
@@ -364,7 +457,6 @@ function renderSchedule(data, windows) {
         schedRows.appendChild(m);
       }
 
-      // Tide row
       const row = document.createElement("div");
       row.className = "tide-row" + (isPast ? " past" : "");
 
@@ -395,7 +487,6 @@ function renderSchedule(data, windows) {
 
       schedRows.appendChild(row);
 
-      // After a low tide: insert a red "closes" separator
       if (!isHigh && win) {
         const m = document.createElement("div");
         m.className =
@@ -410,8 +501,6 @@ function renderSchedule(data, windows) {
   renderEntries(todayEntries);
 
   if (!hasUpcomingWindowToday && tomorrowData) {
-    // For cross-midnight windows (opens today, low tide tomorrow):
-    // render their "opens" marker at the end of today's section, before the separator.
     const preRendered = new Set();
     for (const e of tomorrowData.tide_data) {
       if (e.type !== "low_tide") continue;
@@ -438,6 +527,23 @@ function renderSchedule(data, windows) {
 
 // ── Fetch & init ─────────────────────────────────────────────────────────
 
+// Weather — non-blocking, populates the status block when ready
+fetch(WEATHER_URL)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((data) => {
+    if (!data) return;
+    const cc = data.current_condition?.[0];
+    if (!cc) return;
+    const parts = [
+      `${cc.temp_C}°C`,
+      `${parseInt(cc.windspeedKmph, 10)} km/h ${cc.winddir16Point}`,
+    ];
+    statusWeather.textContent = parts.join(" · ");
+    statusWeather.hidden = false;
+  })
+  .catch(() => {});
+
+// Tide data
 fetch(API_URL)
   .then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -445,12 +551,14 @@ fetch(API_URL)
   })
   .then((data) => {
     const entries = buildEntries(data);
+    const allEntries = buildAllEntries(data);
     const windows = computeWindows(entries);
+    const allWindows = computeWindows(allEntries);
 
-    renderTimeline(windows, entries);
+    renderTimeline(windows, allEntries); // allEntries for a fuller sparkline
     renderSchedule(data, windows);
+    renderUpcoming(allWindows, nowParis());
 
-    // Initial status render + refresh every second
     renderStatus(windows, entries);
     setInterval(() => renderStatus(windows, entries), 1000);
   })
