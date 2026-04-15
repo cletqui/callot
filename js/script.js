@@ -88,14 +88,16 @@ function resolveStatus(windows, now) {
   return { accessible: false, changesAt: next ? next.opens : null };
 }
 
-// Build the entry list: last_tide + today + first entry of tomorrow
+// Build the entry list: last_tide + today + first 2 entries of tomorrow.
+// We need 2 tomorrow entries so that a low tide near midnight has a "next"
+// entry for window computation (cross-midnight case).
 function buildEntries(data) {
   const entries = [];
   if (data.last_tide) entries.push(data.last_tide);
   entries.push(...data.forecast.tide_data);
   const days = Object.values(data.data);
-  if (days.length > 1 && days[1].tide_data.length > 0) {
-    entries.push(days[1].tide_data[0]);
+  if (days.length > 1) {
+    entries.push(...days[1].tide_data.slice(0, 2));
   }
   return entries;
 }
@@ -122,13 +124,36 @@ tickClock();
 
 const statusLabel = document.getElementById("status-label");
 const statusSub   = document.getElementById("status-sub");
+const statusTide  = document.getElementById("status-tide");
 const tlWindows   = document.getElementById("timeline-windows");
+const tlTicks     = document.getElementById("timeline-ticks");
+const tlTickLabels = document.getElementById("timeline-tick-labels");
 const tlNow       = document.getElementById("timeline-now");
 const schedDate   = document.getElementById("schedule-date");
 const schedRows   = document.getElementById("schedule-rows");
 
-function renderStatus(windows) {
-  // Re-evaluate every second (called from tick)
+// Returns tide direction (montante/descendante) and coeff label for current moment
+function getTideInfo(entries, now) {
+  const nowTs = now.getTime();
+  let lastBefore = null;
+  let nextAfter  = null;
+  for (const e of entries) {
+    const ts = parseTimestamp(e.timestamp).getTime();
+    if (ts <= nowTs) lastBefore = e;
+    else if (!nextAfter) nextAfter = e;
+  }
+  const direction = lastBefore?.type === "low_tide"  ? "↑ montante"
+                  : lastBefore?.type === "high_tide" ? "↓ descendante"
+                  : "";
+  // Coeff from the high tide bounding the current cycle
+  const nearHigh = lastBefore?.type === "high_tide" ? lastBefore
+                 : nextAfter?.type  === "high_tide" ? nextAfter
+                 : entries.find(e => e.type === "high_tide" && e.coeff_label);
+  const coeff = nearHigh?.coeff_label ?? null;
+  return { direction, coeff };
+}
+
+function renderStatus(windows, entries) {
   const now = nowParis();
   const { accessible, changesAt } = resolveStatus(windows, now);
 
@@ -143,7 +168,11 @@ function renderStatus(windows) {
     statusSub.textContent = "";
   }
 
-  // Update timeline cursor
+  // Tide direction + coeff
+  const { direction, coeff } = getTideInfo(entries, now);
+  statusTide.textContent = [direction, coeff].filter(Boolean).join(" · ");
+
+  // Timeline cursor
   const dayStart = new Date(now);
   dayStart.setUTCHours(0, 0, 0, 0);
   const pct = ((now.getTime() - dayStart.getTime()) / 86400000) * 100;
@@ -156,21 +185,51 @@ function renderTimeline(windows) {
   dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = dayStart.getTime() + 86400000;
 
+  // Clamp a date to [0 %, 100 %] of today's bar
   function pct(d) {
     const t = Math.max(dayStart.getTime(), Math.min(dayEnd, d.getTime()));
     return ((t - dayStart.getTime()) / 86400000) * 100;
   }
 
   tlWindows.innerHTML = "";
+  tlTicks.innerHTML = "";
+  tlTickLabels.innerHTML = "";
+
   for (const w of windows) {
-    const left  = pct(w.opens);
-    const right = 100 - pct(w.closes);
-    if (left >= 100 || right >= 100) continue;
+    const leftPct  = pct(w.opens);
+    const rightPct = pct(w.closes); // capped at 100 for cross-midnight windows
+
+    if (rightPct <= 0 || leftPct >= 100) continue;
+
+    // Blue accessible segment
     const seg = document.createElement("div");
     seg.className = "tw-segment";
-    seg.style.left  = `${left}%`;
-    seg.style.right = `${right}%`;
+    seg.style.left  = `${leftPct}%`;
+    seg.style.right = `${100 - rightPct}%`;
     tlWindows.appendChild(seg);
+
+    // Tick + label at opens (start of access window, between high→low)
+    addTick(leftPct, w.opens, "is-opens");
+
+    // Tick + label at closes (end of access window, between low→high)
+    // Only draw if it falls within today's bar
+    if (rightPct < 100) addTick(rightPct, w.closes, "is-closes");
+  }
+
+  function addTick(x, date, cls) {
+    // Vertical cut on the bar
+    const tick = document.createElement("div");
+    tick.className = "tw-tick";
+    tick.style.left = `${x}%`;
+    tlTicks.appendChild(tick);
+
+    // Time label below the bar
+    const label = document.createElement("span");
+    label.className = `tw-tick-label ${cls}`;
+    // Clamp label position so text doesn't overflow the edges
+    label.style.left = `${Math.min(Math.max(x, 6), 94)}%`;
+    label.textContent = fmtTime(date);
+    tlTickLabels.appendChild(label);
   }
 }
 
@@ -249,8 +308,8 @@ fetch(API_URL)
     renderSchedule(data, windows);
 
     // Initial status render + refresh every second
-    renderStatus(windows);
-    setInterval(() => renderStatus(windows), 1000);
+    renderStatus(windows, entries);
+    setInterval(() => renderStatus(windows, entries), 1000);
   })
   .catch(err => {
     statusLabel.textContent = "erreur";

@@ -122,14 +122,21 @@ main {
 
 #status-sub strong { color: var(--fg); font-weight: 400; }
 
+#status-tide {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+  min-height: 16px;
+}
+
 /* ── Timeline ───────────────────────────────────────────────────────────── */
 
 #timeline-wrap { width: 100%; }
 
 #timeline {
   position: relative;
-  height: 8px;
-  border-radius: 4px;
+  height: 10px;
+  border-radius: 5px;
   overflow: visible;
   margin-bottom: 6px;
 }
@@ -153,24 +160,63 @@ main {
   top: 0;
   bottom: 0;
   background: var(--accessible);
-  opacity: 0.35;
+  opacity: 0.45;
+}
+
+/* Tick marks: background-colored cuts at each opens/closes transition */
+#timeline-ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tw-tick {
+  position: absolute;
+  width: 2px;
+  top: -1px;
+  bottom: -1px;
+  background: var(--bg);
+  transform: translateX(-50%);
+  z-index: 2;
+  border-radius: 1px;
 }
 
 #timeline-now {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
+  top: -4px;
+  bottom: -4px;
   width: 2px;
   background: var(--fg);
   border-radius: 1px;
   transform: translateX(-50%);
+  z-index: 3;
 }
+
+/* Time labels below the bar, aligned to each tick */
+#timeline-tick-labels {
+  position: relative;
+  height: 18px;
+}
+
+.tw-tick-label {
+  position: absolute;
+  top: 2px;
+  font-size: 9px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  color: var(--muted);
+  line-height: 1;
+}
+
+.tw-tick-label.is-opens  { color: var(--accessible); }
+.tw-tick-label.is-closes { color: var(--muted); }
 
 #timeline-labels {
   display: flex;
   justify-content: space-between;
   font-size: 9px;
   color: var(--muted);
+  opacity: 0.5;
 }
 
 /* ── Schedule ───────────────────────────────────────────────────────────── */
