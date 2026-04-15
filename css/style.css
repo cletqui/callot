@@ -70,8 +70,11 @@ header {
   border: none;
   cursor: pointer;
   padding: 4px;
+  min-width: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
+  justify-content: center;
   color: var(--muted);
   transition: color 0.15s;
 }
@@ -148,6 +151,12 @@ main {
   color: var(--muted);
   letter-spacing: 0.03em;
   min-height: 16px;
+  text-align: center;
+}
+
+/* Coeff sits on its own line — no separator ambiguity on any screen width */
+.st-coeff {
+  display: block;
 }
 
 /* ── Timeline ───────────────────────────────────────────────────────────── */
@@ -414,6 +423,19 @@ main {
   font-size: 10px;
   color: var(--muted);
   letter-spacing: 0.03em;
+  padding-top: 6px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+
+/* Inline SVG icons used in the weather line */
+.wi {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
 }
 
 /* ── Upcoming windows ───────────────────────────────────────────────────── */
@@ -436,13 +458,15 @@ main {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 0;
+  padding: 5px 0 5px 8px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  border-left: 2px solid transparent;
 }
 
 .upcoming-row.is-active {
   color: var(--accessible);
+  border-left-color: var(--accessible);
 }
 
 .upcoming-opens,
@@ -489,6 +513,9 @@ footer {
 footer a {
   display: flex;
   align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
   color: var(--muted);
   transition: color 0.15s;
 }
@@ -511,6 +538,28 @@ footer a:hover .footer-icon {
 }
 [data-theme="light"] footer a:hover .footer-icon {
   filter: invert(10%) sepia(0%);
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 400px) {
+  main {
+    padding-top: 20px;
+    gap: 24px;
+  }
+
+  #status-label {
+    font-size: 1.25rem;
+    letter-spacing: 0.08em;
+  }
+
+  #clock {
+    font-size: 2.5rem;
+  }
+
+  #clock-sec {
+    font-size: 1.75rem;
+  }
 }
 
 /* ── Icon (theme toggle) ────────────────────────────────────────────────── */
