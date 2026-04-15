@@ -1,7 +1,8 @@
 // ── Constants ────────────────────────────────────────────────────────────
 
 const HARBOUR_ID = "71";
-const API_URL = `https://api.cybai.re/data/tide?id=${HARBOUR_ID}`;
+// const API_URL = `https://api.cybai.re/data/tide?id=${HARBOUR_ID}`;
+const API_URL = `http://localhost:8787/data/tide?id=${HARBOUR_ID}`;
 
 // ── Theme ────────────────────────────────────────────────────────────────
 
@@ -14,7 +15,8 @@ const stored = localStorage.getItem("theme");
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 const initialTheme = stored ?? (prefersDark ? "dark" : "light");
 html.setAttribute("data-theme", initialTheme);
-themeIcon.src = initialTheme === "dark" ? "./icons/moon.svg" : "./icons/sun.svg";
+themeIcon.src =
+  initialTheme === "dark" ? "./icons/moon.svg" : "./icons/sun.svg";
 
 themeBtn.addEventListener("click", () => {
   const next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
@@ -68,9 +70,10 @@ function computeWindows(entries) {
   const windows = [];
   for (let i = 0; i < entries.length; i++) {
     if (entries[i].type !== "low_tide") continue;
-    const low  = parseTimestamp(entries[i].timestamp);
-    const prev = i > 0               ? parseTimestamp(entries[i - 1].timestamp) : null;
-    const next = i < entries.length - 1 ? parseTimestamp(entries[i + 1].timestamp) : null;
+    const low = parseTimestamp(entries[i].timestamp);
+    const prev = i > 0 ? parseTimestamp(entries[i - 1].timestamp) : null;
+    const next =
+      i < entries.length - 1 ? parseTimestamp(entries[i + 1].timestamp) : null;
     if (!prev || !next) continue;
     windows.push({ opens: midpoint(prev, low), closes: midpoint(low, next) });
   }
@@ -84,7 +87,7 @@ function resolveStatus(windows, now) {
       return { accessible: true, changesAt: w.closes };
     }
   }
-  const next = windows.find(w => w.opens > now);
+  const next = windows.find((w) => w.opens > now);
   return { accessible: false, changesAt: next ? next.opens : null };
 }
 
@@ -123,33 +126,43 @@ tickClock();
 // ── Render ───────────────────────────────────────────────────────────────
 
 const statusLabel = document.getElementById("status-label");
-const statusSub   = document.getElementById("status-sub");
-const statusTide  = document.getElementById("status-tide");
-const tlWindows   = document.getElementById("timeline-windows");
-const tlTicks     = document.getElementById("timeline-ticks");
+const statusSub = document.getElementById("status-sub");
+const statusTide = document.getElementById("status-tide");
+const tlWindows = document.getElementById("timeline-windows");
+const tlTicks = document.getElementById("timeline-ticks");
 const tlTickLabels = document.getElementById("timeline-tick-labels");
-const tlNow       = document.getElementById("timeline-now");
-const schedDate   = document.getElementById("schedule-date");
-const schedRows   = document.getElementById("schedule-rows");
+const tlNow = document.getElementById("timeline-now");
+const schedDate = document.getElementById("schedule-date");
+const schedRows = document.getElementById("schedule-rows");
 
 // Returns tide direction (montante/descendante) and coeff label for current moment
 function getTideInfo(entries, now) {
   const nowTs = now.getTime();
   let lastBefore = null;
-  let nextAfter  = null;
+  let nextAfter = null;
   for (const e of entries) {
     const ts = parseTimestamp(e.timestamp).getTime();
     if (ts <= nowTs) lastBefore = e;
     else if (!nextAfter) nextAfter = e;
   }
-  const direction = lastBefore?.type === "low_tide"  ? "↑ montante"
-                  : lastBefore?.type === "high_tide" ? "↓ descendante"
-                  : "";
+  const direction =
+    lastBefore?.type === "low_tide"
+      ? "↑ montante"
+      : lastBefore?.type === "high_tide"
+        ? "↓ descendante"
+        : "";
   // Coeff from the high tide bounding the current cycle
-  const nearHigh = lastBefore?.type === "high_tide" ? lastBefore
-                 : nextAfter?.type  === "high_tide" ? nextAfter
-                 : entries.find(e => e.type === "high_tide" && e.coeff_label);
-  const coeff = nearHigh?.coeff_label ?? null;
+  const nearHigh =
+    lastBefore?.type === "high_tide"
+      ? lastBefore
+      : nextAfter?.type === "high_tide"
+        ? nextAfter
+        : entries.find((e) => e.type === "high_tide" && e.coeff_label);
+  const coeffLabel = nearHigh?.coeff_label ?? null;
+  const coeffNum = nearHigh?.coeff ?? null;
+  const coeff = coeffLabel
+    ? coeffNum ? `${coeffLabel} (coeff. ${coeffNum})` : coeffLabel
+    : null;
   return { direction, coeff };
 }
 
@@ -158,18 +171,17 @@ function renderStatus(windows, entries) {
   const { accessible, changesAt } = resolveStatus(windows, now);
 
   statusLabel.textContent = accessible ? "accessible" : "inaccessible";
-  statusLabel.classList.toggle("accessible",   accessible);
+  statusLabel.classList.toggle("accessible", accessible);
   statusLabel.classList.toggle("inaccessible", !accessible);
 
   if (changesAt) {
     const ms = changesAt.getTime() - now.getTime();
     const verb = accessible ? "ferme" : "ouvre";
-    statusSub.innerHTML = `${verb} dans <strong>${fmtCountdown(ms)}</strong> · ${fmtTime(changesAt)}`;
+    statusSub.innerHTML = `${verb} dans <strong>${fmtCountdown(ms)}</strong> (<strong>${fmtTime(changesAt)}</strong>)`;
   } else {
     statusSub.textContent = "";
   }
 
-  // Tide direction + coeff
   const { direction, coeff } = getTideInfo(entries, now);
   statusTide.textContent = [direction, coeff].filter(Boolean).join(" · ");
 
@@ -180,7 +192,9 @@ function renderStatus(windows, entries) {
   tlNow.style.left = `${pct}%`;
 }
 
-function renderTimeline(windows) {
+const tlTides = document.getElementById("timeline-tides");
+
+function renderTimeline(windows, entries) {
   const now = nowParis();
   const dayStart = new Date(now);
   dayStart.setUTCHours(0, 0, 0, 0);
@@ -193,11 +207,23 @@ function renderTimeline(windows) {
   }
 
   tlWindows.innerHTML = "";
+  tlTides.innerHTML = "";
   tlTicks.innerHTML = "";
   tlTickLabels.innerHTML = "";
 
+  // Tide marks — thin line at each tide peak/trough, including last_tide
+  for (const e of entries) {
+    const ts = parseTimestamp(e.timestamp);
+    const x = pct(ts);
+    if (x <= 0 || x >= 100) continue; // only within today's bar
+    const mark = document.createElement("div");
+    mark.className = `tw-tide-mark ${e.type === "high_tide" ? "is-high" : "is-low"}`;
+    mark.style.left = `${x}%`;
+    tlTides.appendChild(mark);
+  }
+
   for (const w of windows) {
-    const leftPct  = pct(w.opens);
+    const leftPct = pct(w.opens);
     const rightPct = pct(w.closes); // capped at 100 for cross-midnight windows
 
     if (rightPct <= 0 || leftPct >= 100) continue;
@@ -205,7 +231,7 @@ function renderTimeline(windows) {
     // Blue accessible segment
     const seg = document.createElement("div");
     seg.className = "tw-segment";
-    seg.style.left  = `${leftPct}%`;
+    seg.style.left = `${leftPct}%`;
     seg.style.right = `${100 - rightPct}%`;
     tlWindows.appendChild(seg);
 
@@ -237,97 +263,148 @@ function renderTimeline(windows) {
 function renderSchedule(data, windows) {
   const now = nowParis();
   const nowTs = now.getTime();
-  const entries = data.forecast.tide_data;
 
-  // Show coeff of first high tide (sets the range context for the day)
-  const highWithCoeff = data.forecast.tide_data.find(e => e.type === "high_tide" && e.coeff_label);
+  // Date header with coeff badge
+  const highWithCoeff = data.forecast.tide_data.find(
+    (e) => e.type === "high_tide" && e.coeff_label
+  );
   schedDate.innerHTML = highWithCoeff
-    ? `${data.forecast.date} <span class="coeff-badge">${highWithCoeff.coeff_label}</span>`
+    ? `${data.forecast.date} <span class="coeff-badge">${highWithCoeff.coeff_label}${highWithCoeff.coeff ? ` · ${highWithCoeff.coeff}` : ""}</span>`
     : data.forecast.date;
   schedRows.innerHTML = "";
 
-  // Map each low-tide entry to its access window
+  const todayEntries = data.forecast.tide_data;
+  const days = Object.values(data.data);
+  const tomorrowData = days.length > 1 ? days[1] : null;
+
+  // Use buildEntries so the windowForEntry map covers cross-midnight low tides
+  const allEntries = buildEntries(data);
   const windowForEntry = new Map();
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].type !== "low_tide") continue;
-    const lowTime = parseTimestamp(entries[i].timestamp);
-    const win = windows.find(w => lowTime >= w.opens && lowTime <= w.closes);
-    if (win) windowForEntry.set(i, win);
+  for (const e of allEntries) {
+    if (e.type !== "low_tide") continue;
+    const lowTime = parseTimestamp(e.timestamp);
+    const win = windows.find((w) => lowTime >= w.opens && lowTime <= w.closes);
+    if (win) windowForEntry.set(e, win);
   }
 
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i];
-    const isHigh = e.type === "high_tide";
-    const isPast = parseTimestamp(e.timestamp).getTime() < nowTs;
+  // Decide whether to show tomorrow: when no access window opens after now within today
+  const lastTodayTs = todayEntries.length
+    ? parseTimestamp(todayEntries[todayEntries.length - 1].timestamp).getTime()
+    : 0;
+  const hasUpcomingWindowToday = windows.some(
+    (w) => w.opens.getTime() > nowTs && w.opens.getTime() <= lastTodayTs
+  );
 
-    // Before a low tide: insert a green "opens" separator
-    if (!isHigh && windowForEntry.has(i)) {
-      const win = windowForEntry.get(i);
-      const m = document.createElement("div");
-      m.className = "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
-      m.textContent = `${fmtTime(win.opens)} — accès`;
-      schedRows.appendChild(m);
+  // Midnight boundary between today and tomorrow (naive-UTC Paris time)
+  const dayStart = new Date(now);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const tomorrowStart = dayStart.getTime() + 86400000;
+
+  // Render a list of entries; renderedOpens tracks windows whose "opens" marker
+  // was already placed before the day separator (cross-midnight case).
+  function renderEntries(entries, renderedOpens = new Set()) {
+    for (const e of entries) {
+      const isHigh = e.type === "high_tide";
+      const isPast = parseTimestamp(e.timestamp).getTime() < nowTs;
+      const win = windowForEntry.get(e);
+
+      // Before a low tide: insert a green "opens" separator
+      if (!isHigh && win && !renderedOpens.has(win)) {
+        const m = document.createElement("div");
+        m.className =
+          "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accès`;
+        schedRows.appendChild(m);
+      }
+
+      // Tide row
+      const row = document.createElement("div");
+      row.className = "tide-row" + (isPast ? " past" : "");
+
+      const arrow = document.createElement("span");
+      arrow.className = "tide-arrow";
+      arrow.textContent = isHigh ? "▲" : "▼";
+
+      const time = document.createElement("span");
+      time.className = "tide-time";
+      time.textContent = e.time;
+
+      const height = document.createElement("span");
+      height.className = "tide-height" + (isHigh ? "" : " low");
+      height.textContent = e.high.replace(",", ".");
+
+      row.appendChild(arrow);
+      row.appendChild(time);
+      row.appendChild(height);
+
+      if (isHigh && e.coeff_label) {
+        const coeff = document.createElement("span");
+        coeff.className = "tide-coeff";
+        coeff.textContent = e.coeff ? `${e.coeff_label} · coeff. ${e.coeff}` : e.coeff_label;
+        row.appendChild(coeff);
+      }
+
+      schedRows.appendChild(row);
+
+      // After a low tide: insert a red "closes" separator
+      if (!isHigh && win) {
+        const m = document.createElement("div");
+        m.className =
+          "access-marker is-closes" +
+          (win.closes.getTime() < nowTs ? " past" : "");
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.closes)}</span> — ferme`;
+        schedRows.appendChild(m);
+      }
+    }
+  }
+
+  renderEntries(todayEntries);
+
+  if (!hasUpcomingWindowToday && tomorrowData) {
+    // For cross-midnight windows (opens today, low tide tomorrow):
+    // render their "opens" marker at the end of today's section, before the separator.
+    const preRendered = new Set();
+    for (const e of tomorrowData.tide_data) {
+      if (e.type !== "low_tide") continue;
+      const win = windowForEntry.get(e);
+      if (win && win.opens.getTime() < tomorrowStart) {
+        const m = document.createElement("div");
+        m.className =
+          "access-marker is-opens" + (win.opens.getTime() < nowTs ? " past" : "");
+        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accès`;
+        schedRows.appendChild(m);
+        preRendered.add(win);
+      }
     }
 
-    // Tide row
-    const row = document.createElement("div");
-    row.className = "tide-row" + (isPast ? " past" : "");
+    const sep = document.createElement("div");
+    sep.className = "schedule-day-sep";
+    sep.textContent = tomorrowData.date;
+    schedRows.appendChild(sep);
 
-    const arrow = document.createElement("span");
-    arrow.className = "tide-arrow";
-    arrow.textContent = isHigh ? "▲" : "▼";
-
-    const time = document.createElement("span");
-    time.className = "tide-time";
-    time.textContent = e.time;
-
-    const height = document.createElement("span");
-    height.className = "tide-height" + (isHigh ? "" : " low");
-    height.textContent = e.high.replace(",", ".");
-
-    row.appendChild(arrow);
-    row.appendChild(time);
-    row.appendChild(height);
-
-    if (isHigh && e.coeff_label) {
-      const coeff = document.createElement("span");
-      coeff.className = "tide-coeff";
-      coeff.textContent = e.coeff_label;
-      row.appendChild(coeff);
-    }
-
-    schedRows.appendChild(row);
-
-    // After a low tide: insert a red "closes" separator
-    if (!isHigh && windowForEntry.has(i)) {
-      const win = windowForEntry.get(i);
-      const m = document.createElement("div");
-      m.className = "access-marker is-closes" + (win.closes.getTime() < nowTs ? " past" : "");
-      m.textContent = `${fmtTime(win.closes)} — ferme`;
-      schedRows.appendChild(m);
-    }
+    renderEntries(tomorrowData.tide_data, preRendered);
   }
 }
 
 // ── Fetch & init ─────────────────────────────────────────────────────────
 
 fetch(API_URL)
-  .then(r => {
+  .then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   })
-  .then(data => {
+  .then((data) => {
     const entries = buildEntries(data);
     const windows = computeWindows(entries);
 
-    renderTimeline(windows);
+    renderTimeline(windows, entries);
     renderSchedule(data, windows);
 
     // Initial status render + refresh every second
     renderStatus(windows, entries);
     setInterval(() => renderStatus(windows, entries), 1000);
   })
-  .catch(err => {
+  .catch((err) => {
     statusLabel.textContent = "erreur";
     statusSub.textContent = err.message;
   });

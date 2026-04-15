@@ -6,7 +6,7 @@
   --muted: #71717a;
   --border: #27272a;
   --accessible: hsl(142 60% 45%);
-  --danger:     hsl(0 65% 52%);
+  --danger: hsl(0 65% 52%);
   --font: "JetBrains Mono", ui-monospace, monospace;
 }
 
@@ -16,12 +16,18 @@
   --muted: #71717a;
   --border: #e4e4e7;
   --accessible: hsl(142 65% 35%);
-  --danger:     hsl(0 65% 46%);
+  --danger: hsl(0 65% 46%);
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 body {
   font-family: var(--font);
@@ -54,7 +60,10 @@ header {
   letter-spacing: -0.01em;
 }
 
-.title span { color: var(--muted); font-weight: 400; }
+.title span {
+  color: var(--muted);
+  font-weight: 400;
+}
 
 #theme-btn {
   background: none;
@@ -66,7 +75,9 @@ header {
   color: var(--muted);
   transition: color 0.15s;
 }
-#theme-btn:hover { color: var(--fg); }
+#theme-btn:hover {
+  color: var(--fg);
+}
 
 /* ── Main ───────────────────────────────────────────────────────────────── */
 
@@ -115,15 +126,22 @@ main {
   transition: color 0.3s;
 }
 
-#status-label.accessible   { color: var(--accessible); }
-#status-label.inaccessible { color: var(--danger); }
+#status-label.accessible {
+  color: var(--accessible);
+}
+#status-label.inaccessible {
+  color: var(--danger);
+}
 
 #status-sub {
   font-size: 11px;
   color: var(--muted);
 }
 
-#status-sub strong { color: var(--fg); font-weight: 400; }
+#status-sub strong {
+  color: var(--fg);
+  font-weight: 500;
+}
 
 #status-tide {
   font-size: 10px;
@@ -134,7 +152,9 @@ main {
 
 /* ── Timeline ───────────────────────────────────────────────────────────── */
 
-#timeline-wrap { width: 100%; }
+#timeline-wrap {
+  width: 100%;
+}
 
 #timeline {
   position: relative;
@@ -164,6 +184,31 @@ main {
   bottom: 0;
   background: var(--accessible);
   opacity: 0.5;
+}
+
+/* Tide marks — thin lines at each high/low tide time */
+#timeline-tides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tw-tide-mark {
+  position: absolute;
+  width: 1px;
+  background: var(--muted);
+  opacity: 0.4;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  z-index: 1;
+}
+.tw-tide-mark.is-high {
+  top: 0;
+  height: 5px;
+}
+.tw-tide-mark.is-low {
+  bottom: 0;
+  height: 5px;
 }
 
 /* Tick marks: background-colored cuts at each opens/closes transition */
@@ -211,8 +256,12 @@ main {
   line-height: 1;
 }
 
-.tw-tick-label.is-opens  { color: var(--accessible); }
-.tw-tick-label.is-closes { color: var(--danger); }
+.tw-tick-label.is-opens {
+  color: var(--accessible);
+}
+.tw-tick-label.is-closes {
+  color: var(--danger);
+}
 
 #timeline-labels {
   display: flex;
@@ -224,7 +273,9 @@ main {
 
 /* ── Schedule ───────────────────────────────────────────────────────────── */
 
-#schedule { width: 100%; }
+#schedule {
+  width: 100%;
+}
 
 #schedule-date {
   font-size: 10px;
@@ -241,28 +292,51 @@ main {
   letter-spacing: 0.05em;
 }
 
+/* Tomorrow date separator */
+.schedule-day-sep {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 0 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
 /* Access transition rows inserted between tide entries */
 .access-marker {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 0;
+  padding: 4px 0;
   font-size: 10px;
   transition: opacity 0.2s;
 }
 
+.marker-time {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
 .access-marker::before,
 .access-marker::after {
-  content: '';
+  content: "";
   flex: 1;
   height: 1px;
   background: currentColor;
   opacity: 0.2;
 }
 
-.access-marker.is-opens  { color: var(--accessible); }
-.access-marker.is-closes { color: var(--danger); }
-.access-marker.past      { opacity: 0.35; }
+.access-marker.is-opens {
+  color: var(--accessible);
+}
+.access-marker.is-closes {
+  color: var(--danger);
+}
+.access-marker.past {
+  opacity: 0.35;
+}
 
 .tide-row {
   display: flex;
@@ -272,12 +346,24 @@ main {
   transition: opacity 0.2s;
 }
 
-.tide-row.past { opacity: 0.35; }
+.tide-row.past {
+  opacity: 0.35;
+}
 
-.tide-arrow { width: 12px; color: var(--muted); font-size: 10px; }
-.tide-time  { width: 36px; font-variant-numeric: tabular-nums; }
-.tide-height { width: 52px; font-variant-numeric: tabular-nums; color: var(--muted); }
-.tide-height.low { color: var(--accessible); }
+.tide-arrow {
+  width: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.tide-time {
+  width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.tide-height {
+  width: 52px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
 
 .tide-coeff {
   font-size: 10px;
@@ -302,7 +388,9 @@ footer a {
   color: var(--muted);
   transition: color 0.15s;
 }
-footer a:hover { color: var(--fg); }
+footer a:hover {
+  color: var(--fg);
+}
 
 .footer-icon {
   width: 16px;
@@ -310,10 +398,16 @@ footer a:hover { color: var(--fg); }
   filter: invert(50%) sepia(0%) saturate(0%);
   transition: filter 0.15s;
 }
-footer a:hover .footer-icon { filter: invert(90%) sepia(0%); }
+footer a:hover .footer-icon {
+  filter: invert(90%) sepia(0%);
+}
 
-[data-theme="light"] .footer-icon { filter: invert(40%) sepia(0%); }
-[data-theme="light"] footer a:hover .footer-icon { filter: invert(10%) sepia(0%); }
+[data-theme="light"] .footer-icon {
+  filter: invert(40%) sepia(0%);
+}
+[data-theme="light"] footer a:hover .footer-icon {
+  filter: invert(10%) sepia(0%);
+}
 
 /* ── Icon (theme toggle) ────────────────────────────────────────────────── */
 
@@ -323,6 +417,12 @@ footer a:hover .footer-icon { filter: invert(90%) sepia(0%); }
   filter: invert(50%) sepia(0%);
   transition: filter 0.15s;
 }
-#theme-btn:hover .icon { filter: invert(90%) sepia(0%); }
-[data-theme="light"] .icon { filter: invert(40%) sepia(0%); }
-[data-theme="light"] #theme-btn:hover .icon { filter: invert(10%) sepia(0%); }
+#theme-btn:hover .icon {
+  filter: invert(90%) sepia(0%);
+}
+[data-theme="light"] .icon {
+  filter: invert(40%) sepia(0%);
+}
+[data-theme="light"] #theme-btn:hover .icon {
+  filter: invert(10%) sepia(0%);
+}
