@@ -6,6 +6,58 @@ const HARBOUR_ID = "71";
 const API_URL = `${BASE_URL}/data/tide?id=${HARBOUR_ID}`;
 const WEATHER_URL = `${BASE_URL}/data/weather?location=Carantec`;
 
+// ── i18n ──────────────────────────────────────────────────────────────────
+
+const LANGS = {
+  fr: {
+    accessible: "accessible",
+    inaccessible: "inaccessible",
+    opens_in: "ouvre dans",
+    closes_in: "ferme dans",
+    opens_verb: "ouvre",
+    tide_rising: "▲ marée montante",
+    tide_falling: "▼ marée descendante",
+    coeff_abbr: "coeff.",
+    coeff_labels: {
+      "morte-eau": "morte-eau",
+      "normale": "normale",
+      "vive-eau": "vive-eau",
+      "vive-eau exceptionnelle": "vive-eau exceptionnelle",
+    },
+    upcoming_label: "fenêtres à venir",
+    schedule_label: "marées",
+    opens_marker: "— accessible",
+    closes_marker: "— inaccessible",
+    date_locale: "fr-FR",
+    toggle: "EN",
+  },
+  en: {
+    accessible: "accessible",
+    inaccessible: "inaccessible",
+    opens_in: "opens in",
+    closes_in: "closes in",
+    opens_verb: "opens",
+    tide_rising: "▲ rising tide",
+    tide_falling: "▼ falling tide",
+    coeff_abbr: "coeff.",
+    coeff_labels: {
+      "morte-eau": "neap tide",
+      "normale": "average",
+      "vive-eau": "spring tide",
+      "vive-eau exceptionnelle": "exceptional spring",
+    },
+    upcoming_label: "upcoming windows",
+    schedule_label: "tides",
+    opens_marker: "— accessible",
+    closes_marker: "— inaccessible",
+    date_locale: "en-GB",
+    toggle: "FR",
+  },
+};
+
+let lang = localStorage.getItem("lang") ?? "fr";
+let T = LANGS[lang];
+
 // ── Theme ────────────────────────────────────────────────────────────────
 
 const html = document.documentElement;
@@ -25,6 +77,21 @@ themeBtn.addEventListener("click", () => {
   localStorage.setItem("theme", next);
   themeIcon.src = next === "dark" ? "./icons/moon.svg" : "./icons/sun.svg";
 });
+
+// ── Lang ─────────────────────────────────────────────────────────────────
+
+const langBtn = document.getElementById("lang-btn");
+langBtn.textContent = T.toggle;
+
+langBtn.addEventListener("click", () => setLang(lang === "fr" ? "en" : "fr"));
+
+function setLang(newLang) {
+  lang = newLang;
+  T = LANGS[lang];
+  localStorage.setItem("lang", lang);
+  langBtn.textContent = T.toggle;
+  if (appData) renderAll(appData);
+}
 
 // ── Time helpers ─────────────────────────────────────────────────────────
 
@@ -56,6 +123,50 @@ function fmtCountdown(ms) {
   if (h === 0) return `${min}min`;
   if (min === 0) return `${h}h`;
   return `${h}h\u00a0${min}min`;
+}
+
+// Format a date_index ("20260416") as a localised long date string.
+function fmtDate(dateIndex) {
+  const y = parseInt(dateIndex.slice(0, 4));
+  const m = parseInt(dateIndex.slice(4, 6)) - 1;
+  const d = parseInt(dateIndex.slice(6, 8));
+  return new Date(Date.UTC(y, m, d)).toLocaleDateString(T.date_locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+// Increment a date_index by one day.
+function nextDateIndex(dateIndex) {
+  const y = parseInt(dateIndex.slice(0, 4));
+  const m = parseInt(dateIndex.slice(4, 6)) - 1;
+  const d = parseInt(dateIndex.slice(6, 8));
+  const next = new Date(Date.UTC(y, m, d + 1));
+  return `${next.getUTCFullYear()}${String(next.getUTCMonth() + 1).padStart(2, "0")}${String(next.getUTCDate()).padStart(2, "0")}`;
+}
+
+function sameUTCDay(a, b) {
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  );
+}
+
+// Abbreviated day names per language (indexed by getUTCDay(), 0 = Sunday)
+const SHORT_DAYS = {
+  fr: ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."],
+  en: ["Sun.", "Mon.", "Tue.", "Wed.", "Thu.", "Fri.", "Sat."],
+};
+
+// Returns "HHhMM", appending a day abbreviation when d is not on the same
+// day as refDate (e.g. "23h15 mer." for a cross-midnight marker).
+function fmtTimeWithDay(d, refDate) {
+  const time = fmtTime(d);
+  if (sameUTCDay(d, refDate)) return time;
+  return `${time}\u00a0${SHORT_DAYS[lang][d.getUTCDay()]}`;
 }
 
 // ── Access window computation ────────────────────────────────────────────
@@ -147,24 +258,12 @@ function heightAt(entries, tMs) {
   );
 }
 
-// ── Entry builders ───────────────────────────────────────────────────────
+// ── Entry builder ────────────────────────────────────────────────────────
 
-// Today + first 2 entries of tomorrow (for cross-midnight window computation).
-function buildEntries(data) {
-  const entries = [];
-  if (data.last_tide) entries.push(data.last_tide);
-  entries.push(...data.forecast.tide_data);
-  const days = Object.values(data.data);
-  if (days.length > 1) {
-    entries.push(...days[1].tide_data.slice(0, 2));
-  }
-  return entries;
-}
-
-// Full multi-day list — all available days from the API response.
-// Used for computing multi-day windows and the sparkline.
-// Deduplicates by timestamp and sorts chronologically so that heightAt()
-// always finds the correct prev/next neighbours regardless of last_tide position.
+// Full multi-day list from the API response — deduplicated and sorted
+// chronologically. Used for all window computation and the sparkline.
+// Sorting ensures heightAt() and computeWindows() always see correct
+// prev/next neighbours regardless of where last_tide falls.
 function buildAllEntries(data) {
   const map = new Map();
   if (data.last_tide?.timestamp) map.set(data.last_tide.timestamp, data.last_tide);
@@ -172,7 +271,9 @@ function buildAllEntries(data) {
     for (const e of day.tide_data) map.set(e.timestamp, e);
   }
   return [...map.values()].sort(
-    (a, b) => parseTimestamp(a.timestamp).getTime() - parseTimestamp(b.timestamp).getTime()
+    (a, b) =>
+      parseTimestamp(a.timestamp).getTime() -
+      parseTimestamp(b.timestamp).getTime()
   );
 }
 
@@ -222,9 +323,9 @@ function getTideInfo(entries, now) {
   }
   const direction =
     lastBefore?.type === "low_tide"
-      ? "▲ marée montante"
+      ? T.tide_rising
       : lastBefore?.type === "high_tide"
-        ? "▼ marée descendante"
+        ? T.tide_falling
         : "";
   const nearHigh =
     lastBefore?.type === "high_tide"
@@ -234,10 +335,13 @@ function getTideInfo(entries, now) {
         : entries.find((e) => e.type === "high_tide" && e.coeff_label);
   const coeffLabel = nearHigh?.coeff_label ?? null;
   const coeffNum = nearHigh?.coeff ?? null;
-  const coeff = coeffLabel
+  const displayLabel = coeffLabel
+    ? (T.coeff_labels[coeffLabel] ?? coeffLabel)
+    : null;
+  const coeff = displayLabel
     ? coeffNum
-      ? `${coeffLabel} (coeff. ${coeffNum})`
-      : coeffLabel
+      ? `${displayLabel} (${T.coeff_abbr} ${coeffNum})`
+      : displayLabel
     : null;
   const height = heightAt(entries, nowTs);
   return { direction, coeff, height };
@@ -247,14 +351,14 @@ function renderStatus(windows, entries) {
   const now = nowParis();
   const { accessible, changesAt } = resolveStatus(windows, now);
 
-  statusLabel.textContent = accessible ? "accessible" : "inaccessible";
+  statusLabel.textContent = accessible ? T.accessible : T.inaccessible;
   statusLabel.classList.toggle("accessible", accessible);
   statusLabel.classList.toggle("inaccessible", !accessible);
 
   if (changesAt) {
     const ms = changesAt.getTime() - now.getTime();
-    const verb = accessible ? "ferme" : "ouvre";
-    statusSub.innerHTML = `${verb} dans <strong>${fmtCountdown(ms)}</strong> (<strong>${fmtTime(changesAt)}</strong>)`;
+    const verb = accessible ? T.closes_in : T.opens_in;
+    statusSub.innerHTML = `${verb} <strong>${fmtCountdown(ms)}</strong> (<strong>${fmtTime(changesAt)}</strong>)`;
   } else {
     statusSub.textContent = "";
   }
@@ -271,7 +375,7 @@ function renderStatus(windows, entries) {
   document.title = accessible
     ? "✓ callot"
     : changesAt
-      ? `callot · ouvre ${fmtTime(changesAt)}`
+      ? `callot · ${T.opens_verb} ${fmtTime(changesAt)}`
       : "✗ callot";
 
   // Timeline cursor
@@ -309,7 +413,7 @@ function renderTimeline(windows, entries) {
 
   const step = 10 * 60 * 1000; // sample every 10 min
   const parts = [];
-  let penUp = true; // lift pen at null gaps so no straight lines are drawn across them
+  let penUp = true; // lift pen at null gaps so no straight lines are drawn
   for (let t = dayStartMs; t <= dayEnd; t += step) {
     const h = heightAt(entries, t);
     if (h === null) { penUp = true; continue; }
@@ -375,14 +479,6 @@ function renderTimeline(windows, entries) {
 
 // ── Upcoming windows ─────────────────────────────────────────────────────
 
-function sameUTCDay(a, b) {
-  return (
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth() === b.getUTCMonth() &&
-    a.getUTCDate() === b.getUTCDate()
-  );
-}
-
 function renderUpcoming(allWindows, now) {
   // Windows not yet fully closed, next 4
   const relevant = allWindows.filter((w) => w.closes > now).slice(0, 4);
@@ -395,10 +491,8 @@ function renderUpcoming(allWindows, now) {
     const row = document.createElement("div");
     row.className = "upcoming-row" + (isActive ? " is-active" : "");
 
-    // Show date prefix when window is not today
-    const dateHtml = !sameUTCDay(w.opens, now)
-      ? `<span class="upcoming-date">${String(w.opens.getUTCDate()).padStart(2, "0")}/${String(w.opens.getUTCMonth() + 1).padStart(2, "0")}</span>`
-      : "";
+    // Always show a date prefix so it's clear which day the window belongs to
+    const dateHtml = `<span class="upcoming-date">${String(w.opens.getUTCDate()).padStart(2, "0")}/${String(w.opens.getUTCMonth() + 1).padStart(2, "0")}</span>`;
 
     row.innerHTML =
       dateHtml +
@@ -412,18 +506,25 @@ function renderUpcoming(allWindows, now) {
 
 // ── Schedule ─────────────────────────────────────────────────────────────
 
-function renderSchedule(data, windows) {
+// allEntries: the sorted, deduplicated full entry list (passed in so
+// windowForEntry can correctly map overnight low tides to their windows).
+function renderSchedule(data, windows, allEntries) {
   const now = nowParis();
   const nowTs = now.getTime();
 
-  schedDate.textContent = data.forecast.date;
+  const todayDateIndex = data.forecast.date_index;
+  const tomorrowDateIndex = nextDateIndex(todayDateIndex);
+
+  document.getElementById("schedule-label").textContent = T.schedule_label;
+  schedDate.textContent = fmtDate(todayDateIndex);
   schedRows.innerHTML = "";
 
   const todayEntries = data.forecast.tide_data;
   const days = Object.values(data.data);
   const tomorrowData = days.length > 1 ? days[1] : null;
 
-  const allEntries = buildEntries(data);
+  // Build a map from low-tide entry → its access window using the full
+  // sorted entry list so cross-midnight low tides are found correctly.
   const windowForEntry = new Map();
   for (const e of allEntries) {
     if (e.type !== "low_tide") continue;
@@ -442,22 +543,27 @@ function renderSchedule(data, windows) {
   const dayStart = new Date(now);
   dayStart.setUTCHours(0, 0, 0, 0);
   const tomorrowStart = dayStart.getTime() + 86400000;
+  const tomorrowDate = new Date(tomorrowStart);
 
-  function renderEntries(entries, renderedOpens = new Set()) {
+  // sectionDate: reference Date for the current schedule section, used to
+  // detect cross-day access markers and append a day abbreviation to them.
+  function renderEntries(entries, sectionDate, renderedOpens = new Set()) {
     for (const e of entries) {
       const isHigh = e.type === "high_tide";
       const isPast = parseTimestamp(e.timestamp).getTime() < nowTs;
       const win = windowForEntry.get(e);
 
+      // Before a low tide: insert an "opens" marker
       if (!isHigh && win && !renderedOpens.has(win)) {
         const m = document.createElement("div");
         m.className =
           "access-marker is-opens" +
           (win.opens.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accessible`;
+        m.innerHTML = `<span class="marker-time">${fmtTimeWithDay(win.opens, sectionDate)}</span> ${T.opens_marker}`;
         schedRows.appendChild(m);
       }
 
+      // Tide row
       const row = document.createElement("div");
       row.className = "tide-row" + (isPast ? " past" : "");
 
@@ -480,28 +586,33 @@ function renderSchedule(data, windows) {
       if (isHigh && e.coeff_label) {
         const coeff = document.createElement("span");
         coeff.className = "tide-coeff";
+        const displayLabel = T.coeff_labels[e.coeff_label] ?? e.coeff_label;
         coeff.textContent = e.coeff
-          ? `${e.coeff_label} · coeff. ${e.coeff}`
-          : e.coeff_label;
+          ? `${displayLabel} · ${T.coeff_abbr} ${e.coeff}`
+          : displayLabel;
         row.appendChild(coeff);
       }
 
       schedRows.appendChild(row);
 
+      // After a low tide: insert a "closes" marker
       if (!isHigh && win) {
         const m = document.createElement("div");
         m.className =
           "access-marker is-closes" +
           (win.closes.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.closes)}</span> — inaccessible`;
+        m.innerHTML = `<span class="marker-time">${fmtTimeWithDay(win.closes, sectionDate)}</span> ${T.closes_marker}`;
         schedRows.appendChild(m);
       }
     }
   }
 
-  renderEntries(todayEntries);
+  renderEntries(todayEntries, now);
 
   if (!hasUpcomingWindowToday && tomorrowData) {
+    // Cross-midnight windows: the "opens" marker falls in today's section
+    // but the low tide is tomorrow. Render those opens markers before the
+    // day separator, using `now` as reference (it's a today-section time).
     const preRendered = new Set();
     for (const e of tomorrowData.tide_data) {
       if (e.type !== "low_tide") continue;
@@ -511,7 +622,7 @@ function renderSchedule(data, windows) {
         m.className =
           "access-marker is-opens" +
           (win.opens.getTime() < nowTs ? " past" : "");
-        m.innerHTML = `<span class="marker-time">${fmtTime(win.opens)}</span> — accessible`;
+        m.innerHTML = `<span class="marker-time">${fmtTimeWithDay(win.opens, now)}</span> ${T.opens_marker}`;
         schedRows.appendChild(m);
         preRendered.add(win);
       }
@@ -519,14 +630,26 @@ function renderSchedule(data, windows) {
 
     const sep = document.createElement("div");
     sep.className = "schedule-day-sep";
-    sep.textContent = tomorrowData.date;
+    sep.textContent = fmtDate(tomorrowDateIndex);
     schedRows.appendChild(sep);
 
-    renderEntries(tomorrowData.tide_data, preRendered);
+    renderEntries(tomorrowData.tide_data, tomorrowDate, preRendered);
   }
 }
 
-// ── Fetch & init ─────────────────────────────────────────────────────────
+// ── App state & init ──────────────────────────────────────────────────────
+
+let appData = null; // retained for re-render on language change
+
+function renderAll({ data, allEntries, allWindows }) {
+  document.getElementById("upcoming-label").textContent = T.upcoming_label;
+  document.getElementById("schedule-label").textContent = T.schedule_label;
+  renderTimeline(allWindows, allEntries);
+  renderSchedule(data, allWindows, allEntries);
+  renderUpcoming(allWindows, nowParis());
+}
+
+// ── Fetch ─────────────────────────────────────────────────────────────────
 
 // Weather — non-blocking, populates the status block when ready
 fetch(WEATHER_URL)
@@ -535,11 +658,7 @@ fetch(WEATHER_URL)
     if (!data) return;
     const cc = data.current_condition?.[0];
     if (!cc) return;
-    const parts = [
-      `${cc.temp_C}°C`,
-      `${parseInt(cc.windspeedKmph, 10)} km/h ${cc.winddir16Point}`,
-    ];
-    // Inline SVG icons so they inherit currentColor and need no filter tricks
+    // Inline SVG icons inherit currentColor — no filter tricks needed
     const tempIcon = `<svg class="wi" viewBox="0 0 6 12" aria-hidden="true"><rect x="2.2" y="0" width="1.6" height="7.5" rx="0.8" fill="currentColor"/><circle cx="3" cy="10" r="2" fill="currentColor"/></svg>`;
     const windIcon = `<svg class="wi" viewBox="0 0 12 6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><line x1="0.6" y1="1.5" x2="11.4" y2="1.5"/><line x1="0.6" y1="4.5" x2="7.5" y2="4.5"/></svg>`;
     statusWeather.innerHTML = `${tempIcon} ${cc.temp_C}°C · ${windIcon} ${parseInt(cc.windspeedKmph, 10)} km/h ${cc.winddir16Point}`;
@@ -554,17 +673,17 @@ fetch(API_URL)
     return r.json();
   })
   .then((data) => {
-    const entries = buildEntries(data);
+    // Single sorted entry list used for everything — windows, sparkline,
+    // height interpolation. Avoids the ordering bug where last_tide (e.g.
+    // HT@06h15 today) sat before LT@00h30 and broke overnight windows.
     const allEntries = buildAllEntries(data);
-    const windows = computeWindows(entries);
     const allWindows = computeWindows(allEntries);
 
-    renderTimeline(windows, allEntries); // allEntries for a fuller sparkline
-    renderSchedule(data, windows);
-    renderUpcoming(allWindows, nowParis());
+    appData = { data, allEntries, allWindows };
+    renderAll(appData);
 
-    renderStatus(windows, entries);
-    setInterval(() => renderStatus(windows, entries), 1000);
+    renderStatus(allWindows, allEntries);
+    setInterval(() => renderStatus(allWindows, allEntries), 1000);
   })
   .catch((err) => {
     statusLabel.textContent = "erreur";

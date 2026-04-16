@@ -9,7 +9,7 @@ Tide accessibility tracker for [Île Callot](https://fr.wikipedia.org/wiki/%C3%8
 - Current tide height and direction (montante / descendante), tidal coefficient
 - Current weather conditions (temperature, wind) from wttr.in
 - 24h timeline with a cosine-interpolated tide height sparkline, dashed road threshold line, and access window segments
-- Upcoming access windows (next 4), with duration and date when not today
+- Upcoming access windows (next 4), each with a `DD/MM` date prefix and duration
 - Today's tide schedule with per-window access markers; extends to tomorrow when no window remains today
 
 ## How it works

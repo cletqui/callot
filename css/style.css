@@ -65,6 +65,31 @@ header {
   font-weight: 400;
 }
 
+.header-btns {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+#lang-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  transition: color 0.15s;
+}
+#lang-btn:hover {
+  color: var(--fg);
+}
+
 #theme-btn {
   background: none;
   border: none;
