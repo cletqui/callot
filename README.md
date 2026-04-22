@@ -28,7 +28,7 @@ Cycles where the low tide stays above the threshold (no road access) are skipped
 
 When the first available tide entry is a low tide (no preceding high tide in the API data), a virtual high tide is extrapolated by mirroring the half-period before the first low, ensuring sparkline and windows are rendered correctly from midnight.
 
-Tide data comes from [api.cybai.re](https://api.cybai.re) (harbour ID 71), which scrapes and caches [maree.info](https://maree.info). The page title updates every second to reflect the current state (`✓ callot` / `callot · ouvre 23h15`), useful in pinned tabs.
+Tide data comes from [api.cybai.re](https://api.cybai.re) (harbour ID 71), which scrapes and caches [maree.info](https://maree.info). The page title updates every second to reflect the current state (`✓ callot` / `callot · ouvre à 23h15`), useful in pinned tabs.
 
 ## Features
 
