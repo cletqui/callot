@@ -15,13 +15,14 @@ const LANGS = {
     inaccessible: "inaccessible",
     opens_in: "ouvre dans",
     closes_in: "ferme dans",
+    opens_at: "ouvre à",
     opens_verb: "ouvre",
     tide_rising: "▲ marée montante",
     tide_falling: "▼ marée descendante",
     coeff_abbr: "coeff.",
     coeff_labels: {
       "morte-eau": "morte-eau",
-      "normale": "normale",
+      normale: "normale",
       "vive-eau": "vive-eau",
       "vive-eau exceptionnelle": "vive-eau exceptionnelle",
     },
@@ -34,7 +35,8 @@ const LANGS = {
     toggle: "FR",
     bell_on: "Alertes activées",
     bell_off: "Activer les alertes",
-    notify_closes: (t, m) => `La route ferme dans ~${m} min — quittez l'île avant ${t}.`,
+    notify_closes: (t, m) =>
+      `La route ferme dans ~${m} min — quittez l'île avant ${t}.`,
     notify_opens: (t, m) => `La route ouvre dans ~${m} min (${t}).`,
     about_label: "à propos",
   },
@@ -43,13 +45,14 @@ const LANGS = {
     inaccessible: "inaccessible",
     opens_in: "opens in",
     closes_in: "closes in",
+    opense_at: "opens at",
     opens_verb: "opens",
     tide_rising: "▲ rising tide",
     tide_falling: "▼ falling tide",
     coeff_abbr: "coeff.",
     coeff_labels: {
       "morte-eau": "neap tide",
-      "normale": "average",
+      normale: "average",
       "vive-eau": "spring tide",
       "vive-eau exceptionnelle": "exceptional spring",
     },
@@ -62,7 +65,8 @@ const LANGS = {
     toggle: "EN",
     bell_on: "Alerts on",
     bell_off: "Enable alerts",
-    notify_closes: (t, m) => `Road closes in ~${m} min — leave the island before ${t}.`,
+    notify_closes: (t, m) =>
+      `Road closes in ~${m} min — leave the island before ${t}.`,
     notify_opens: (t, m) => `Road opens in ~${m} min (${t}).`,
     about_label: "about",
   },
@@ -174,9 +178,10 @@ function updateAbout() {
   if (label) label.textContent = T.about_label;
   if (!text) return;
   const thresh = String(ROAD_THRESHOLD).replace(".", lang === "fr" ? "," : ".");
-  text.innerHTML = lang === "fr"
-    ? `L'<strong>île Callot</strong> est une île bretonne accessible à pied via une route submersible lors des marées basses. Cette page indique en temps réel si la traversée est possible et combien de temps il reste. Le seuil d'accessibilité est à <strong>${thresh}\u00a0m</strong>.`
-    : `<strong>Île Callot</strong> is a tidal island in Brittany accessible on foot via a tidal road during low tide. This page shows in real time whether crossing is possible and how much time remains. The road threshold is <strong>${thresh} m</strong>.`;
+  text.innerHTML =
+    lang === "fr"
+      ? `L'<strong>île Callot</strong> est une île bretonne accessible à pied via une route submersible lors des marées basses. Cette page indique en temps réel si la traversée est possible et combien de temps il reste. Le seuil d'accessibilité est à <strong>${thresh}\u00a0m</strong>.`
+      : `<strong>Île Callot</strong> is a tidal island in Brittany accessible on foot via a tidal road during low tide. This page shows in real time whether crossing is possible and how much time remains. The road threshold is <strong>${thresh} m</strong>.`;
 }
 
 updateAbout();
@@ -368,14 +373,15 @@ function heightAt(entries, tMs) {
 // prev/next neighbours regardless of where last_tide falls.
 function buildAllEntries(data) {
   const map = new Map();
-  if (data.last_tide?.timestamp) map.set(data.last_tide.timestamp, data.last_tide);
+  if (data.last_tide?.timestamp)
+    map.set(data.last_tide.timestamp, data.last_tide);
   for (const day of Object.values(data.data)) {
     for (const e of day.tide_data) map.set(e.timestamp, e);
   }
   const sorted = [...map.values()].sort(
     (a, b) =>
       parseTimestamp(a.timestamp).getTime() -
-      parseTimestamp(b.timestamp).getTime()
+      parseTimestamp(b.timestamp).getTime(),
   );
 
   // If the earliest known entry is a low tide, there is no preceding high tide
@@ -501,7 +507,7 @@ function renderStatus(windows, entries) {
   document.title = accessible
     ? "✓ callot"
     : changesAt
-      ? `callot · ${T.opens_verb} ${fmtTime(changesAt)}`
+      ? `callot · ${T.opens_at} ${fmtTime(changesAt)}`
       : "✗ callot";
 
   // Timeline cursor
@@ -542,7 +548,10 @@ function renderTimeline(windows, entries) {
   let penUp = true; // lift pen at null gaps so no straight lines are drawn
   for (let t = dayStartMs; t <= dayEnd; t += step) {
     const h = heightAt(entries, t);
-    if (h === null) { penUp = true; continue; }
+    if (h === null) {
+      penUp = true;
+      continue;
+    }
     const x = (((t - dayStartMs) / 86400000) * SVG_W).toFixed(1);
     const y = (SVG_H - (h / maxH) * SVG_H).toFixed(1);
     parts.push(`${penUp ? "M" : "L"} ${x} ${y}`);
@@ -777,7 +786,7 @@ function renderCalendar(allWindows, data) {
   const baseMs = Date.UTC(
     parseInt(baseIndex.slice(0, 4)),
     parseInt(baseIndex.slice(4, 6)) - 1,
-    parseInt(baseIndex.slice(6, 8))
+    parseInt(baseIndex.slice(6, 8)),
   );
 
   for (const key of Object.keys(data.data)) {
@@ -787,7 +796,7 @@ function renderCalendar(allWindows, data) {
     const isToday = offset === 0;
 
     const dayWindows = allWindows.filter(
-      (w) => w.opens.getTime() < dayEndMs && w.closes.getTime() > dayStartMs
+      (w) => w.opens.getTime() < dayEndMs && w.closes.getTime() > dayStartMs,
     );
 
     const row = document.createElement("div");
