@@ -1,0 +1,17 @@
+{
+  "name": "Callot",
+  "short_name": "Callot",
+  "description": "Île Callot — accessibilité en temps réel",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#111113",
+  "theme_color": "#111113",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

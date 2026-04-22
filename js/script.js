@@ -5,6 +5,7 @@ const BASE_URL = "https://api.cybai.re";
 const HARBOUR_ID = "71";
 const API_URL = `${BASE_URL}/data/tide?id=${HARBOUR_ID}`;
 const WEATHER_URL = `${BASE_URL}/data/weather?location=Carantec`;
+const ROAD_THRESHOLD = 4.5; // metres — road floods above this level
 
 // ── i18n ──────────────────────────────────────────────────────────────────
 
@@ -25,11 +26,17 @@ const LANGS = {
       "vive-eau exceptionnelle": "vive-eau exceptionnelle",
     },
     upcoming_label: "fenêtres à venir",
+    calendar_label: "semaine",
     schedule_label: "marées",
     opens_marker: "— accessible",
     closes_marker: "— inaccessible",
     date_locale: "fr-FR",
-    toggle: "EN",
+    toggle: "FR",
+    bell_on: "Alertes activées",
+    bell_off: "Activer les alertes",
+    notify_closes: (t, m) => `La route ferme dans ~${m} min — quittez l'île avant ${t}.`,
+    notify_opens: (t, m) => `La route ouvre dans ~${m} min (${t}).`,
+    about_label: "à propos",
   },
   en: {
     accessible: "accessible",
@@ -47,11 +54,17 @@ const LANGS = {
       "vive-eau exceptionnelle": "exceptional spring",
     },
     upcoming_label: "upcoming windows",
+    calendar_label: "week",
     schedule_label: "tides",
     opens_marker: "— accessible",
     closes_marker: "— inaccessible",
     date_locale: "en-GB",
-    toggle: "FR",
+    toggle: "EN",
+    bell_on: "Alerts on",
+    bell_off: "Enable alerts",
+    notify_closes: (t, m) => `Road closes in ~${m} min — leave the island before ${t}.`,
+    notify_opens: (t, m) => `Road opens in ~${m} min (${t}).`,
+    about_label: "about",
   },
 };
 
@@ -78,6 +91,96 @@ themeBtn.addEventListener("click", () => {
   themeIcon.src = next === "dark" ? "./icons/moon.svg" : "./icons/sun.svg";
 });
 
+// ── Notifications ────────────────────────────────────────────────────────
+
+const NOTIFY_BEFORE_MS = 30 * 60 * 1000;
+let notifyTimer = null;
+let notifyEnabled = localStorage.getItem("notify") === "on";
+
+function scheduleNotification(windows) {
+  clearTimeout(notifyTimer);
+  if (!notifyEnabled || Notification.permission !== "granted") return;
+  const now = nowParis().getTime();
+  for (const w of windows) {
+    if (now >= w.opens.getTime() && now < w.closes.getTime()) {
+      const delay = w.closes.getTime() - NOTIFY_BEFORE_MS - now;
+      if (delay > 0) {
+        notifyTimer = setTimeout(() => {
+          const min = Math.round((w.closes.getTime() - Date.now()) / 60000);
+          new Notification("🌊 Callot", {
+            body: T.notify_closes(fmtTime(w.closes), min),
+            icon: "./icons/icon.svg",
+            tag: "callot-alert",
+          });
+        }, delay);
+      }
+      return;
+    }
+  }
+  const next = windows.find((w) => w.opens.getTime() > now);
+  if (next) {
+    const delay = next.opens.getTime() - NOTIFY_BEFORE_MS - now;
+    if (delay > 0) {
+      notifyTimer = setTimeout(() => {
+        const min = Math.round((next.opens.getTime() - Date.now()) / 60000);
+        new Notification("🌊 Callot", {
+          body: T.notify_opens(fmtTime(next.opens), min),
+          icon: "./icons/icon.svg",
+          tag: "callot-alert",
+        });
+      }, delay);
+    }
+  }
+}
+
+function updateBellState() {
+  const b = document.getElementById("bell-btn");
+  if (!b) return;
+  const active = notifyEnabled && Notification.permission === "granted";
+  b.classList.toggle("is-active", active);
+  b.title = active ? T.bell_on : T.bell_off;
+  b.setAttribute("aria-label", active ? T.bell_on : T.bell_off);
+}
+
+const bellBtn = document.getElementById("bell-btn");
+if (bellBtn) {
+  updateBellState();
+  bellBtn.addEventListener("click", async () => {
+    if (notifyEnabled) {
+      notifyEnabled = false;
+      localStorage.setItem("notify", "off");
+      clearTimeout(notifyTimer);
+    } else {
+      if (!("Notification" in window)) return;
+      const perm =
+        Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+      if (perm === "granted") {
+        notifyEnabled = true;
+        localStorage.setItem("notify", "on");
+        if (appData) scheduleNotification(appData.allWindows);
+      }
+    }
+    updateBellState();
+  });
+}
+
+// ── About ─────────────────────────────────────────────────────────────────
+
+function updateAbout() {
+  const label = document.getElementById("about-label");
+  const text = document.getElementById("about-text");
+  if (label) label.textContent = T.about_label;
+  if (!text) return;
+  const thresh = String(ROAD_THRESHOLD).replace(".", lang === "fr" ? "," : ".");
+  text.innerHTML = lang === "fr"
+    ? `L'<strong>île Callot</strong> est une île bretonne accessible à pied via une route submersible lors des marées basses. Cette page indique en temps réel si la traversée est possible et combien de temps il reste. Le seuil d'accessibilité est à <strong>${thresh}\u00a0m</strong>.`
+    : `<strong>Île Callot</strong> is a tidal island in Brittany accessible on foot via a tidal road during low tide. This page shows in real time whether crossing is possible and how much time remains. The road threshold is <strong>${thresh} m</strong>.`;
+}
+
+updateAbout();
+
 // ── Lang ─────────────────────────────────────────────────────────────────
 
 const langBtn = document.getElementById("lang-btn");
@@ -90,6 +193,8 @@ function setLang(newLang) {
   T = LANGS[lang];
   localStorage.setItem("lang", lang);
   langBtn.textContent = T.toggle;
+  updateBellState();
+  updateAbout();
   if (appData) renderAll(appData);
 }
 
@@ -170,9 +275,6 @@ function fmtTimeWithDay(d, refDate) {
 }
 
 // ── Access window computation ────────────────────────────────────────────
-
-// Height of the road — access is possible when tide is below this level.
-const ROAD_THRESHOLD = 4.5; // metres
 
 function parseHeight(h) {
   return parseFloat(String(h).replace(",", ".").replace("m", ""));
@@ -270,11 +372,35 @@ function buildAllEntries(data) {
   for (const day of Object.values(data.data)) {
     for (const e of day.tide_data) map.set(e.timestamp, e);
   }
-  return [...map.values()].sort(
+  const sorted = [...map.values()].sort(
     (a, b) =>
       parseTimestamp(a.timestamp).getTime() -
       parseTimestamp(b.timestamp).getTime()
   );
+
+  // If the earliest known entry is a low tide, there is no preceding high tide
+  // to anchor the cosine curve (the API only provides data from today onwards).
+  // Extrapolate a virtual high tide by mirroring the half-period to the next
+  // known high tide — a symmetric approximation accurate enough for rendering.
+  if (sorted.length >= 2 && sorted[0].type === "low_tide") {
+    const nextHigh = sorted.find((e) => e.type === "high_tide");
+    if (nextHigh) {
+      const tLowMs = parseTimestamp(sorted[0].timestamp).getTime();
+      const tNextHighMs = parseTimestamp(nextHigh.timestamp).getTime();
+      const tVirtualMs = tLowMs - (tNextHighMs - tLowMs);
+      const d = new Date(tVirtualMs);
+      const pad = (n) => String(n).padStart(2, "0");
+      const ts = `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+      sorted.unshift({
+        type: "high_tide",
+        time: `${pad(d.getUTCHours())}h${pad(d.getUTCMinutes())}`,
+        high: nextHigh.high,
+        timestamp: ts,
+      });
+    }
+  }
+
+  return sorted;
 }
 
 // ── Clock ────────────────────────────────────────────────────────────────
@@ -525,12 +651,12 @@ function renderSchedule(data, windows, allEntries) {
 
   // Build a map from low-tide entry → its access window using the full
   // sorted entry list so cross-midnight low tides are found correctly.
-  const windowForEntry = new Map();
+  const windowForEntry = new Map(); // keyed by timestamp string
   for (const e of allEntries) {
     if (e.type !== "low_tide") continue;
     const lowTime = parseTimestamp(e.timestamp);
     const win = windows.find((w) => lowTime >= w.opens && lowTime <= w.closes);
-    if (win) windowForEntry.set(e, win);
+    if (win) windowForEntry.set(e.timestamp, win);
   }
 
   const lastTodayTs = todayEntries.length
@@ -551,7 +677,7 @@ function renderSchedule(data, windows, allEntries) {
     for (const e of entries) {
       const isHigh = e.type === "high_tide";
       const isPast = parseTimestamp(e.timestamp).getTime() < nowTs;
-      const win = windowForEntry.get(e);
+      const win = windowForEntry.get(e.timestamp);
 
       // Before a low tide: insert an "opens" marker
       if (!isHigh && win && !renderedOpens.has(win)) {
@@ -616,7 +742,7 @@ function renderSchedule(data, windows, allEntries) {
     const preRendered = new Set();
     for (const e of tomorrowData.tide_data) {
       if (e.type !== "low_tide") continue;
-      const win = windowForEntry.get(e);
+      const win = windowForEntry.get(e.timestamp);
       if (win && win.opens.getTime() < tomorrowStart) {
         const m = document.createElement("div");
         m.className =
@@ -637,6 +763,108 @@ function renderSchedule(data, windows, allEntries) {
   }
 }
 
+// ── Calendar ─────────────────────────────────────────────────────────────
+
+function renderCalendar(allWindows, data) {
+  const calRows = document.getElementById("calendar-rows");
+  if (!calRows) return;
+  document.getElementById("calendar-label").textContent = T.calendar_label;
+  calRows.innerHTML = "";
+  const now = nowParis();
+
+  // Keys in data.data are YYYYMMDD + day-offset digit (e.g. "202604220" = April 22 +0)
+  const baseIndex = data.forecast.date_index;
+  const baseMs = Date.UTC(
+    parseInt(baseIndex.slice(0, 4)),
+    parseInt(baseIndex.slice(4, 6)) - 1,
+    parseInt(baseIndex.slice(6, 8))
+  );
+
+  for (const key of Object.keys(data.data)) {
+    const offset = parseInt(key.slice(8));
+    const dayStartMs = baseMs + offset * 86400000;
+    const dayEndMs = dayStartMs + 86400000;
+    const isToday = offset === 0;
+
+    const dayWindows = allWindows.filter(
+      (w) => w.opens.getTime() < dayEndMs && w.closes.getTime() > dayStartMs
+    );
+
+    const row = document.createElement("div");
+    row.className = "cal-row" + (isToday ? " is-today" : "");
+
+    const dayEl = document.createElement("div");
+    dayEl.className = "cal-day";
+    const d = new Date(dayStartMs);
+    const shortDay = d.toLocaleDateString(T.date_locale, {
+      weekday: "short",
+      timeZone: "UTC",
+    });
+    dayEl.textContent = `${shortDay} ${d.getUTCDate()}`;
+    row.appendChild(dayEl);
+
+    const bar = document.createElement("div");
+    bar.className = "cal-bar";
+
+    for (const w of dayWindows) {
+      const opensMs = Math.max(w.opens.getTime(), dayStartMs);
+      const closesMs = Math.min(w.closes.getTime(), dayEndMs);
+      const leftPct = ((opensMs - dayStartMs) / 86400000) * 100;
+      const rightPct = 100 - ((closesMs - dayStartMs) / 86400000) * 100;
+      const widthPct = 100 - leftPct - rightPct;
+
+      const seg = document.createElement("div");
+      seg.className = "cal-segment";
+      seg.style.left = `${leftPct}%`;
+      seg.style.right = `${rightPct}%`;
+      const lR = leftPct < 0.1 ? "3px" : "0";
+      const rR = rightPct < 0.1 ? "3px" : "0";
+      seg.style.borderRadius = `${lR} ${rR} ${rR} ${lR}`;
+
+      const isContinuation = w.opens.getTime() < dayStartMs;
+      const continuesNext = w.closes.getTime() > dayEndMs;
+
+      let labelText = null;
+      if (!isContinuation && widthPct > 13)
+        labelText = continuesNext
+          ? `${fmtTime(w.opens)}-`
+          : `${fmtTime(w.opens)}-${fmtTime(w.closes)}`;
+      else if (isContinuation && widthPct > 5)
+        labelText = `-${fmtTime(w.closes)}`;
+      else if (isContinuation) {
+        const ext = document.createElement("span");
+        ext.className = "cal-ext-label";
+        ext.textContent = `-${fmtTime(w.closes)}`;
+        ext.style.left = `${leftPct + widthPct}%`;
+        bar.appendChild(ext);
+      }
+
+      if (labelText) {
+        const lbl = document.createElement("span");
+        lbl.className = "cal-time-label";
+        lbl.textContent = labelText;
+        seg.appendChild(lbl);
+      }
+
+      bar.appendChild(seg);
+    }
+
+    if (isToday) {
+      const nowPct = ((now.getTime() - dayStartMs) / 86400000) * 100;
+      if (nowPct > 0 && nowPct < 100) {
+        const nowLine = document.createElement("div");
+        nowLine.className = "cal-now";
+        nowLine.style.left = `${nowPct}%`;
+        bar.appendChild(nowLine);
+      }
+    }
+
+    row.appendChild(bar);
+
+    calRows.appendChild(row);
+  }
+}
+
 // ── App state & init ──────────────────────────────────────────────────────
 
 let appData = null; // retained for re-render on language change
@@ -645,6 +873,7 @@ function renderAll({ data, allEntries, allWindows }) {
   document.getElementById("upcoming-label").textContent = T.upcoming_label;
   document.getElementById("schedule-label").textContent = T.schedule_label;
   renderTimeline(allWindows, allEntries);
+  renderCalendar(allWindows, data);
   renderSchedule(data, allWindows, allEntries);
   renderUpcoming(allWindows, nowParis());
 }
@@ -681,6 +910,7 @@ fetch(API_URL)
 
     appData = { data, allEntries, allWindows };
     renderAll(appData);
+    scheduleNotification(allWindows);
 
     renderStatus(allWindows, allEntries);
     setInterval(() => renderStatus(allWindows, allEntries), 1000);
@@ -689,3 +919,9 @@ fetch(API_URL)
     statusLabel.textContent = "erreur";
     statusSub.textContent = err.message;
   });
+
+// ── Service worker ────────────────────────────────────────────────────────
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
