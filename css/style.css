@@ -241,7 +241,7 @@ main {
 .tw-tide-label {
   position: absolute;
   bottom: 0;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1;
   transform: translateX(-50%);
   color: var(--muted);
@@ -318,7 +318,7 @@ main {
 .tw-tick-label {
   position: absolute;
   top: 2px;
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
   transform: translateX(-50%);
   color: var(--muted);
@@ -335,7 +335,7 @@ main {
 #timeline-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 9px;
+  font-size: 10px;
   color: var(--muted);
   opacity: 0.5;
 }
@@ -416,7 +416,7 @@ main {
 }
 
 .cal-time-label {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--bg);
   white-space: nowrap;
   font-weight: 500;
@@ -428,7 +428,7 @@ main {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 9px;
+  font-size: 10px;
   color: var(--fg);
   white-space: nowrap;
   padding-left: 3px;
@@ -614,7 +614,7 @@ main {
 }
 
 .upcoming-date {
-  font-size: 9px;
+  font-size: 10px;
   opacity: 0.6;
   min-width: 28px;
 }

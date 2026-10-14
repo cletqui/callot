@@ -1,4 +1,4 @@
-const CACHE = "callot-v1";
+const CACHE = "callot-v2";
 const SHELL = [
   "./",
   "./css/style.css",
@@ -29,16 +29,40 @@ self.addEventListener("activate", (e) => {
   self.clients.claim();
 });
 
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE);
+  try {
+    const response = await fetch(request);
+    if (response.ok) cache.put(request, response.clone());
+    return response;
+  } catch (err) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
+// Serve the cached copy immediately and refresh it in the background, so
+// shipped updates reach users on their next visit instead of never.
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(CACHE);
+  const cached = await cache.match(request);
+  const refresh = fetch(request)
+    .then((response) => {
+      if (response.ok) cache.put(request, response.clone());
+      return response;
+    })
+    .catch(() => cached);
+  return cached || refresh;
+}
+
 self.addEventListener("fetch", (e) => {
-  // Network-first for API calls so data is always fresh; cache-first for shell
-  if (
-    e.request.url.includes("api.cybai.re") ||
-    e.request.url.includes("fonts.")
-  ) {
-    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
-  } else {
-    e.respondWith(
-      caches.match(e.request).then((cached) => cached || fetch(e.request)),
-    );
+  if (e.request.method !== "GET") return;
+  const { hostname } = new URL(e.request.url);
+
+  if (hostname === "api.cybai.re") {
+    e.respondWith(networkFirst(e.request));
+  } else if (hostname.startsWith("fonts.") || hostname === self.location.hostname) {
+    e.respondWith(staleWhileRevalidate(e.request));
   }
 });

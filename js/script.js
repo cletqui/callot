@@ -13,6 +13,9 @@ const LANGS = {
   fr: {
     accessible: "accessible",
     inaccessible: "inaccessible",
+    now: "maintenant",
+    error: "erreur",
+    retry: "nouvelle tentative…",
     opens_in: "ouvre dans",
     closes_in: "ferme dans",
     opens_at: "ouvre à",
@@ -43,9 +46,12 @@ const LANGS = {
   en: {
     accessible: "accessible",
     inaccessible: "inaccessible",
+    now: "now",
+    error: "error",
+    retry: "retrying…",
     opens_in: "opens in",
     closes_in: "closes in",
-    opense_at: "opens at",
+    opens_at: "opens at",
     opens_verb: "opens",
     tide_rising: "▲ rising tide",
     tide_falling: "▼ falling tide",
@@ -105,36 +111,25 @@ function scheduleNotification(windows) {
   clearTimeout(notifyTimer);
   if (!notifyEnabled || Notification.permission !== "granted") return;
   const now = nowParis().getTime();
+
+  // Every alert still ahead of us: 30 min before each close and each open.
+  const alerts = [];
   for (const w of windows) {
-    if (now >= w.opens.getTime() && now < w.closes.getTime()) {
-      const delay = w.closes.getTime() - NOTIFY_BEFORE_MS - now;
-      if (delay > 0) {
-        notifyTimer = setTimeout(() => {
-          const min = Math.round((w.closes.getTime() - Date.now()) / 60000);
-          new Notification("🌊 Callot", {
-            body: T.notify_closes(fmtTime(w.closes), min),
-            icon: "./icons/icon.svg",
-            tag: "callot-alert",
-          });
-        }, delay);
-      }
-      return;
-    }
+    alerts.push({ at: w.closes.getTime() - NOTIFY_BEFORE_MS, target: w.closes, closing: true });
+    alerts.push({ at: w.opens.getTime() - NOTIFY_BEFORE_MS, target: w.opens, closing: false });
   }
-  const next = windows.find((w) => w.opens.getTime() > now);
-  if (next) {
-    const delay = next.opens.getTime() - NOTIFY_BEFORE_MS - now;
-    if (delay > 0) {
-      notifyTimer = setTimeout(() => {
-        const min = Math.round((next.opens.getTime() - Date.now()) / 60000);
-        new Notification("🌊 Callot", {
-          body: T.notify_opens(fmtTime(next.opens), min),
-          icon: "./icons/icon.svg",
-          tag: "callot-alert",
-        });
-      }, delay);
-    }
-  }
+  const next = alerts.filter((a) => a.at > now).sort((a, b) => a.at - b.at)[0];
+  if (!next) return;
+
+  notifyTimer = setTimeout(() => {
+    const min = Math.round((next.target.getTime() - nowParis().getTime()) / 60000);
+    new Notification("🌊 Callot", {
+      body: (next.closing ? T.notify_closes : T.notify_opens)(fmtTime(next.target), min),
+      icon: "./icons/icon.svg",
+      tag: "callot-alert",
+    });
+    scheduleNotification(windows);
+  }, next.at - now);
 }
 
 function updateBellState() {
@@ -226,7 +221,7 @@ function fmtTime(d) {
 }
 
 function fmtCountdown(ms) {
-  if (ms <= 0) return "maintenant";
+  if (ms <= 0) return T.now;
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);
   const min = totalMin % 60;
@@ -905,12 +900,23 @@ fetch(WEATHER_URL)
   .catch(() => {});
 
 // Tide data
-fetch(API_URL)
-  .then((r) => {
+const REFRESH_MS = 60 * 60 * 1000;
+const RETRY_MS = 30 * 1000;
+let lastLoadMs = 0;
+let lastLoadDay = null;
+let retryTimer = null;
+let statusTimer = null;
+let loading = false;
+
+async function loadTide() {
+  if (loading) return;
+  loading = true;
+  clearTimeout(retryTimer);
+  try {
+    const r = await fetch(API_URL);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
-  })
-  .then((data) => {
+    const data = await r.json();
+
     // Single sorted entry list used for everything — windows, sparkline,
     // height interpolation. Avoids the ordering bug where last_tide (e.g.
     // HT@06h15 today) sat before LT@00h30 and broke overnight windows.
@@ -918,16 +924,40 @@ fetch(API_URL)
     const allWindows = computeWindows(allEntries);
 
     appData = { data, allEntries, allWindows };
+    lastLoadMs = Date.now();
+    lastLoadDay = nowParis().toISOString().slice(0, 10);
     renderAll(appData);
     scheduleNotification(allWindows);
 
     renderStatus(allWindows, allEntries);
-    setInterval(() => renderStatus(allWindows, allEntries), 1000);
-  })
-  .catch((err) => {
-    statusLabel.textContent = "erreur";
-    statusSub.textContent = err.message;
-  });
+    clearInterval(statusTimer);
+    statusTimer = setInterval(() => renderStatus(allWindows, allEntries), 1000);
+  } catch (err) {
+    // Keep showing the previous data if we have any; otherwise surface the error
+    if (!appData) {
+      statusLabel.textContent = T.error;
+      statusSub.textContent = `${err.message} · ${T.retry}`;
+    }
+    retryTimer = setTimeout(loadTide, RETRY_MS);
+  } finally {
+    loading = false;
+  }
+}
+
+// Reload when the page comes back to the foreground after a while or after
+// midnight, and hourly otherwise, so the timeline, schedule and calendar
+// never describe a past day.
+function refreshIfStale() {
+  const today = nowParis().toISOString().slice(0, 10);
+  if (today !== lastLoadDay || Date.now() - lastLoadMs > REFRESH_MS) loadTide();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshIfStale();
+});
+setInterval(refreshIfStale, 60 * 1000);
+
+loadTide();
 
 // ── Service worker ────────────────────────────────────────────────────────
 
