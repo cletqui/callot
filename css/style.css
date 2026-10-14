@@ -503,7 +503,7 @@ main {
   color: var(--danger);
 }
 .access-marker.past {
-  opacity: 0.35;
+  opacity: 0.55;
 }
 
 .tide-row {
@@ -515,7 +515,7 @@ main {
 }
 
 .tide-row.past {
-  opacity: 0.35;
+  opacity: 0.55;
 }
 
 .tide-arrow {
@@ -757,4 +757,63 @@ footer a:hover .footer-icon {
 }
 [data-theme="light"] #theme-btn:hover .icon {
   filter: invert(10%) sepia(0%);
+}
+
+/* ── Loading / freshness ────────────────────────────────────────────────── */
+
+#status-label.is-loading {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+#status-updated {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+#status-updated.is-offline {
+  color: var(--danger);
+}
+
+/* ── Collapsible sections ───────────────────────────────────────────────── */
+
+#schedule-label,
+#calendar-label {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+}
+
+#schedule-label::after,
+#calendar-label::after {
+  content: "−";
+}
+
+#schedule-label.is-collapsed::after,
+#calendar-label.is-collapsed::after {
+  content: "+";
+}
+
+#schedule-label:focus-visible,
+#calendar-label:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
