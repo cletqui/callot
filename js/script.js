@@ -14,6 +14,8 @@ const LANGS = {
     accessible: "accessible",
     inaccessible: "inaccessible",
     now: "maintenant",
+    updated: "mis à jour à",
+    offline: "hors ligne",
     error: "erreur",
     retry: "nouvelle tentative…",
     opens_in: "ouvre dans",
@@ -47,6 +49,8 @@ const LANGS = {
     accessible: "accessible",
     inaccessible: "inaccessible",
     now: "now",
+    updated: "updated at",
+    offline: "offline",
     error: "error",
     retry: "retrying…",
     opens_in: "opens in",
@@ -427,6 +431,7 @@ const statusLabel = document.getElementById("status-label");
 const statusSub = document.getElementById("status-sub");
 const statusTide = document.getElementById("status-tide");
 const statusWeather = document.getElementById("status-weather");
+const statusUpdated = document.getElementById("status-updated");
 const tlWindows = document.getElementById("timeline-windows");
 const tlTicks = document.getElementById("timeline-ticks");
 const tlTickLabels = document.getElementById("timeline-tick-labels");
@@ -479,6 +484,7 @@ function renderStatus(windows, entries) {
   const { accessible, changesAt } = resolveStatus(windows, now);
 
   statusLabel.textContent = accessible ? T.accessible : T.inaccessible;
+  statusLabel.classList.remove("is-loading");
   statusLabel.classList.toggle("accessible", accessible);
   statusLabel.classList.toggle("inaccessible", !accessible);
 
@@ -828,14 +834,20 @@ function renderCalendar(allWindows, data) {
       const isContinuation = w.opens.getTime() < dayStartMs;
       const continuesNext = w.closes.getTime() > dayEndMs;
 
-      let labelText = null;
-      if (!isContinuation && widthPct > 13)
-        labelText = continuesNext
+      seg.title = `${fmtTime(w.opens)} → ${fmtTime(w.closes)}`;
+
+      // Full label first; fitCalendarLabels() shortens or drops it when the
+      // segment is too narrow for the text.
+      let full = null;
+      let short = null;
+      if (!isContinuation) {
+        full = continuesNext
           ? `${fmtTime(w.opens)}-`
           : `${fmtTime(w.opens)}-${fmtTime(w.closes)}`;
-      else if (isContinuation && widthPct > 5)
-        labelText = `-${fmtTime(w.closes)}`;
-      else if (isContinuation) {
+        short = fmtTime(w.opens);
+      } else if (widthPct > 5) {
+        full = `-${fmtTime(w.closes)}`;
+      } else {
         const ext = document.createElement("span");
         ext.className = "cal-ext-label";
         ext.textContent = `-${fmtTime(w.closes)}`;
@@ -843,10 +855,12 @@ function renderCalendar(allWindows, data) {
         bar.appendChild(ext);
       }
 
-      if (labelText) {
+      if (full) {
         const lbl = document.createElement("span");
         lbl.className = "cal-time-label";
-        lbl.textContent = labelText;
+        lbl.dataset.full = full;
+        if (short) lbl.dataset.short = short;
+        lbl.textContent = full;
         seg.appendChild(lbl);
       }
 
@@ -867,7 +881,22 @@ function renderCalendar(allWindows, data) {
 
     calRows.appendChild(row);
   }
+
+  fitCalendarLabels();
 }
+
+// Shrinks each calendar label to the longest variant that fits its segment.
+function fitCalendarLabels() {
+  document.querySelectorAll(".cal-time-label").forEach((lbl) => {
+    const room = lbl.parentElement.clientWidth - 6;
+    lbl.textContent = lbl.dataset.full;
+    if (lbl.scrollWidth <= room) return;
+    lbl.textContent = lbl.dataset.short ?? "";
+    if (lbl.scrollWidth > room) lbl.textContent = "";
+  });
+}
+
+window.addEventListener("resize", fitCalendarLabels);
 
 // ── App state & init ──────────────────────────────────────────────────────
 
@@ -907,6 +936,15 @@ let lastLoadDay = null;
 let retryTimer = null;
 let statusTimer = null;
 let loading = false;
+let updatedLabel = "";
+
+function showUpdated(offline) {
+  statusUpdated.textContent = offline
+    ? `${updatedLabel} · ${T.offline}`
+    : updatedLabel;
+  statusUpdated.classList.toggle("is-offline", offline);
+  statusUpdated.hidden = !updatedLabel;
+}
 
 async function loadTide() {
   if (loading) return;
@@ -926,6 +964,8 @@ async function loadTide() {
     appData = { data, allEntries, allWindows };
     lastLoadMs = Date.now();
     lastLoadDay = nowParis().toISOString().slice(0, 10);
+    updatedLabel = `${T.updated} ${fmtTime(nowParis())}`;
+    showUpdated(false);
     renderAll(appData);
     scheduleNotification(allWindows);
 
@@ -934,7 +974,10 @@ async function loadTide() {
     statusTimer = setInterval(() => renderStatus(allWindows, allEntries), 1000);
   } catch (err) {
     // Keep showing the previous data if we have any; otherwise surface the error
-    if (!appData) {
+    if (appData) {
+      showUpdated(true);
+    } else {
+      statusLabel.classList.remove("is-loading");
       statusLabel.textContent = T.error;
       statusSub.textContent = `${err.message} · ${T.retry}`;
     }
@@ -958,6 +1001,41 @@ document.addEventListener("visibilitychange", () => {
 setInterval(refreshIfStale, 60 * 1000);
 
 loadTide();
+
+// ── Collapsible sections ──────────────────────────────────────────────────
+
+for (const id of ["schedule", "calendar"]) {
+  const label = document.getElementById(`${id}-label`);
+  const body = [...document.getElementById(id).children].filter((c) => c !== label);
+  const key = `collapsed-${id}`;
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem(key) === "1";
+  } catch {}
+
+  const apply = () => {
+    body.forEach((el) => (el.hidden = collapsed));
+    label.setAttribute("aria-expanded", String(!collapsed));
+    label.classList.toggle("is-collapsed", collapsed);
+    if (!collapsed) fitCalendarLabels();
+  };
+  label.setAttribute("role", "button");
+  label.tabIndex = 0;
+  label.addEventListener("click", () => {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem(key, collapsed ? "1" : "0");
+    } catch {}
+    apply();
+  });
+  label.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      label.click();
+    }
+  });
+  apply();
+}
 
 // ── Service worker ────────────────────────────────────────────────────────
 
